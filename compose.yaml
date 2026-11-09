@@ -1,0 +1,37 @@
+services:
+  sandbox:
+    build:
+      context: .
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    image: skill-sandbox:latest
+    container_name: skill-sandbox
+    hostname: skill-sandbox
+    # Keep an interactive shell alive so `up -d` + `exec`, `run`, and `attach` all work.
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    environment:
+      # Optional: leave unset to use `claude` / `/login` interactively instead.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Only these two host folders are visible inside the container.
+      - ./workspace/skills:/home/claude/.claude/skills
+      - ./workspace/project:/workspace
+      # Login state and settings persist here, isolated from the host's ~/.claude.
+      - claude-config:/home/claude/.claude
+    # Hardening: no Linux capabilities, no privilege escalation, bounded resources.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2
+    tmpfs:
+      - /tmp:size=512m
+
+volumes:
+  claude-config:
