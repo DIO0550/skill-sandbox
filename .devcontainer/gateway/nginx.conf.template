@@ -1,0 +1,58 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+
+events {
+  worker_connections 256;
+}
+
+http {
+  client_body_temp_path /tmp/client_temp;
+  proxy_temp_path       /tmp/proxy_temp;
+  fastcgi_temp_path     /tmp/fastcgi_temp;
+  uwsgi_temp_path       /tmp/uwsgi_temp;
+  scgi_temp_path        /tmp/scgi_temp;
+
+  server_tokens off;
+
+  # 認証ヘッダーやボディはログに出さない
+  log_format gateway '$time_iso8601 $remote_addr "$request_method $uri" $status $body_bytes_sent ${request_time}s';
+  access_log /dev/stdout gateway;
+
+  server {
+    listen 8080;
+    client_max_body_size 32m;
+
+    location = /healthz {
+      access_log off;
+      default_type text/plain;
+      return 200 "ok\n";
+    }
+
+    # Claude Code が使う API だけを中継する
+    location /v1/ {
+      proxy_pass ${ANTHROPIC_UPSTREAM};
+      proxy_http_version 1.1;
+      proxy_set_header Connection "";
+
+      proxy_ssl_server_name on;
+      proxy_ssl_verify on;
+      proxy_ssl_verify_depth 3;
+      proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+
+      # コンテナ側が送ってきた認証情報は捨てて、本物のキーに差し替える
+      proxy_set_header Authorization "";
+      proxy_set_header x-api-key "${ANTHROPIC_API_KEY}";
+
+      # ストリーミング（SSE）をそのまま流す
+      proxy_buffering off;
+      proxy_request_buffering off;
+      proxy_read_timeout 600s;
+      proxy_send_timeout 600s;
+    }
+
+    location / {
+      return 403;
+    }
+  }
+}

@@ -1,0 +1,18 @@
+# egress-proxy の許可ドメイン（1 行 1 ドメイン、先頭の . でサブドメインも許可）
+#
+# 既定では何も許可しない。Claude Code の API 通信は api-gateway 経由なので、
+# ここが空でも Claude Code 自体は動く。必要になったものだけ足すこと。
+# 変更後: docker compose -p skill-sandbox restart egress-proxy
+#
+# 注意: github.com や gist.github.com を許可すると、そこが持ち出し経路になる。
+
+# --- スキルのスクリプトが依存パッケージを入れる場合 ---
+# registry.npmjs.org
+# pypi.org
+# files.pythonhosted.org
+
+# --- Pro/Max サブスクリプションでログインする場合（README の「OAuth で使う」参照）---
+# api.anthropic.com
+# claude.ai
+# platform.claude.com
+# console.anthropic.com
