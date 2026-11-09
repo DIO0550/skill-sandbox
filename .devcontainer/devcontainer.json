@@ -1,0 +1,30 @@
+{
+  "name": "skill-sandbox",
+  "dockerComposeFile": ["compose.yaml"],
+  "service": "claude",
+  "runServices": ["claude", "egress-proxy", "api-gateway"],
+  "workspaceFolder": "/workspace",
+  "remoteUser": "node",
+  "overrideCommand": false,
+  "shutdownAction": "stopCompose",
+
+  // 起動のたびに「外に出られないこと」を確認する
+  "postStartCommand": "verify-sandbox",
+
+  // VS Code が転送する SSH エージェントを使わせない
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": ""
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        // ターミナルからの git 操作でホストの認証情報を使わせない
+        "git.terminalAuthentication": false,
+        "github.gitAuthentication": false,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": []
+    }
+  }
+}

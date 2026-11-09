@@ -1,0 +1,116 @@
+# スキル開発用 Claude Code サンドボックス
+#
+#   [claude] ──(sandbox: internal)──┬── [egress-proxy] ──(egress)── インターネット（許可ドメインのみ）
+#                                   └── [api-gateway]  ──(egress)── api.anthropic.com（API キーを注入）
+#
+# claude コンテナは internal ネットワークにしかつながっていないため、
+# デフォルトルートも外部 DNS もない。外に出られるのは 2 つの中継コンテナ経由だけ。
+
+name: skill-sandbox
+
+services:
+  claude:
+    build:
+      context: ./claude
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+    init: true
+    command: ["sleep", "infinity"]
+    user: node
+    working_dir: /workspace
+    networks: [sandbox]
+    environment:
+      # 一般的なツールはこのプロキシを使う（使わない通信は経路がないので失敗する）
+      HTTP_PROXY: http://egress-proxy:3128
+      HTTPS_PROXY: http://egress-proxy:3128
+      http_proxy: http://egress-proxy:3128
+      https_proxy: http://egress-proxy:3128
+      NO_PROXY: api-gateway,localhost,127.0.0.1
+      no_proxy: api-gateway,localhost,127.0.0.1
+      # Node.js の fetch() にもプロキシ環境変数を使わせる（Node 24 以降）
+      NODE_USE_ENV_PROXY: "1"
+      # Claude Code の API リクエストはゲートウェイへ。本物のキーはゲートウェイ側にしかない
+      ANTHROPIC_BASE_URL: http://api-gateway:8080
+      ANTHROPIC_AUTH_TOKEN: injected-by-api-gateway
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      DISABLE_AUTOUPDATER: "1"
+    volumes:
+      # ワークスペースは書き込み可。ただしホスト側で実行され得る場所は読み取り専用で上書きする
+      - ..:/workspace
+      - ../.git:/workspace/.git:ro                 # git hooks の書き換え防止
+      - ../.devcontainer:/workspace/.devcontainer:ro # compose/Dockerfile の書き換え（次回起動時のホスト脱出）防止
+      - ../.claude:/workspace/.claude:ro           # settings.json の hooks などの書き換え防止
+      - ../.claude/skills:/workspace/.claude/skills # 開発対象のスキルだけは書き込み可
+      # ホームディレクトリ（~/.claude、~/.claude.json、VS Code Server など）
+      - claude-home:/home/node
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      # - seccomp=./seccomp.json   # 独自プロファイルを使う場合
+    ipc: private
+    # runtime: runsc               # gVisor を入れている場合（ファイル I/O は遅くなる）
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 512
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+      api-gateway:
+        condition: service_healthy
+
+  egress-proxy:
+    build: ./proxy
+    networks: [sandbox, egress]
+    volumes:
+      - ./proxy/allowlist.txt:/etc/squid/allowlist.txt:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "squidclient", "-h", "127.0.0.1", "-p", "3128", "mgr:info"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  api-gateway:
+    build: ./gateway
+    networks: [sandbox, egress]
+    # API キーはリポジトリの外に置く（.devcontainer 配下はコンテナから読めてしまうため）
+    env_file:
+      - path: ${SKILL_SANDBOX_ENV_FILE:-${HOME}/.config/skill-sandbox/gateway.env}
+        required: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 64
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+networks:
+  sandbox:
+    internal: true
+    enable_ipv6: false
+  egress:
+    enable_ipv6: false
+
+volumes:
+  claude-home:
