@@ -13,7 +13,25 @@ services:
     stdin_open: true
     tty: true
     working_dir: /workspace
+    depends_on:
+      proxy:
+        condition: service_healthy
+    # 外部への経路がない内部ネットワークだけに接続する。
+    # 外に出られるのは proxy 経由で、許可リストにあるドメインだけ。
+    networks:
+      - sandbox
     environment:
+      HTTPS_PROXY: http://proxy:3128
+      HTTP_PROXY: http://proxy:3128
+      https_proxy: http://proxy:3128
+      http_proxy: http://proxy:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+      # 許可リストに入れていない通信先を使う機能を止める
+      # （テレメトリ・エラーレポート、claude.ai の MCP コネクタ、Artifact）
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      ENABLE_CLAUDEAI_MCP_SERVERS: "false"
+      CLAUDE_CODE_DISABLE_ARTIFACT: "1"
       # Optional: leave unset to use `claude` / `/login` interactively instead.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
@@ -32,6 +50,42 @@ services:
     cpus: 2
     tmpfs:
       - /tmp:size=512m
+
+  proxy:
+    image: ubuntu/squid:6.6-24.04_beta
+    container_name: skill-sandbox-proxy
+    command: ["-f", "/etc/squid/sandbox/squid.conf", "-NYC"]
+    # 内部ネットワーク（sandbox 側）と外部ネットワークの両方に足を持つ唯一のコンテナ。
+    # ポートはホストに公開しない。
+    networks:
+      - sandbox
+      - egress
+    volumes:
+      # ディレクトリごとマウントするので、エディタで保存し直しても反映される
+      - ./proxy:/etc/squid/sandbox:ro
+    healthcheck:
+      test: ["CMD", "squid", "-k", "check", "-f", "/etc/squid/sandbox/squid.conf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    cap_drop:
+      - ALL
+    cap_add:
+      # squid は root で起動してから proxy ユーザーに降格する
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 256m
+    restart: unless-stopped
+
+networks:
+  sandbox:
+    internal: true
+  egress:
 
 volumes:
   claude-config:
