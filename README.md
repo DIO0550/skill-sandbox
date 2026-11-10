@@ -6,6 +6,7 @@ Claude Code のスキル（Agent Skills）を、ホスト環境から隔離さ�
 - ホストから見えるのは `./workspace/skills` と `./workspace/project` の 2 フォルダだけ
 - ログイン状態や設定は名前付きボリュームに保存され、ホストの `~/.claude` には触れません
 - 外部への通信は許可リスト型プロキシ（Squid）経由のみ。許可したドメイン以外には接続できません
+- さらに iptables のファイアウォールで、sandbox からはプロキシのポート以外への通信をすべて拒否します
 
 ## 必要なもの
 
@@ -86,19 +87,40 @@ docker compose up -d
 
 ネイティブインストーラーの自動アップデートや `claude update` は `downloads.claude.ai` に接続しますが、このイメージは npm でインストールしており、ビルドはプロキシの制限の外で行われるため、許可リストに `downloads.claude.ai` を入れる必要はありません。実行ファイルを含むプラグインを使う場合だけ、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) のコメントを外してください。
 
-## ネットワーク制限（許可リスト型プロキシ）
+## ネットワーク制限（ファイアウォール＋許可リスト型プロキシ）
 
 ```
 sandbox ──(HTTPS_PROXY)──▶ proxy (Squid) ──(許可ドメインのみ)──▶ インターネット
+   └ firewall の iptables: proxy:3128 以外への送信はすべて拒否
 
-sandbox ネットワーク: sandbox, proxy   ← internal: true（外への経路なし）
-egress ネットワーク : proxy のみ        ← 外に出られるのはここだけ
+sandbox ネットワーク: firewall(+sandbox), proxy  ← internal: true（外への経路なし）
+egress ネットワーク : proxy のみ                  ← 外に出られるのはここだけ
 ```
 
-- `sandbox` コンテナは `internal: true` の Docker ネットワークにだけ接続しています。このネットワークにはゲートウェイがないため、プロキシを経由しない通信（直接の TCP 接続、IP 直打ち、`HTTPS_PROXY` を無視するツール）はすべて失敗します。外部ドメインの DNS 解決もできません。
+通信は 3 段階で制限しています。どれか 1 つが設定ミスなどで効かなくなっても、残りで止まるようにしています。
+
+1. **内部ネットワーク**: sandbox がいるのは `internal: true` の Docker ネットワークだけです。ゲートウェイがないので、プロキシを経由しない通信（直接の TCP 接続、IP 直打ち、`HTTPS_PROXY` を無視するツール）は失敗します。外部ドメインの DNS 解決もできません。
+2. **ファイアウォール（iptables）**: sandbox から出ていく通信は、内部ネットワーク上のポート 3128（プロキシ）への TCP 接続だけを許可し、それ以外はすべて拒否します。同じネットワークにつながった他のコンテナへの接続、プロキシの別ポート、UDP、ICMP、IPv6 も通りません（DNS はコンテナ内のループバックにある Docker 内蔵 DNS だけ使えます）。
+3. **許可リスト型プロキシ**: プロキシを通る通信も、許可したドメインにしか接続できません（下記）。
+
 - 外に出られるのは `proxy` コンテナ（Squid）経由だけです。`HTTPS_PROXY` / `HTTP_PROXY` は `compose.yaml` で設定済みで、Claude Code・curl・git・npm・pip などはそのままプロキシを使います。
 - プロキシは [`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) に書かれたドメインへの接続だけを許可し、それ以外は `403 Forbidden` を返します。接続先ポートは 443（HTTPS）と 80 のみ、IP アドレス直指定やサブドメインのすり抜けも拒否します。
 - プロキシのポートはホストに公開していません。
+
+### ファイアウォールの仕組み
+
+ファイアウォールは [`firewall/init-firewall.sh`](firewall/init-firewall.sh) が専用の `firewall` コンテナで設定します。sandbox は `network_mode: service:firewall` でこのコンテナのネットワーク名前空間を共有するので、ルールは sandbox の通信にそのまま適用されます。
+
+- iptables を操作する `NET_ADMIN` 権限を持つのは `firewall` コンテナだけです。sandbox は capabilities をすべて削除しているので、コンテナ内で root 相当の操作ができてもルールを変更できません。
+- 公式の [devcontainer](https://code.claude.com/docs/en/devcontainer) はコンテナ自身に `NET_ADMIN` を与えて起動時にルールを設定しますが、この構成では Claude Code が動くコンテナにその権限を渡さずに済みます。
+- ルールを設定し、プロキシにつながることと既定ポリシーが DROP になったことを確認してから healthy になります。sandbox はそれまで起動しません。
+- `firewall` コンテナが停止・再起動すると、sandbox はネットワークインターフェースを失い、どこにも通信できなくなります（制限が外れることはありません）。その場合は `docker compose restart sandbox` で復旧します。
+
+ルールの確認:
+
+```bash
+docker compose exec firewall iptables -L -v -n
+```
 
 ### 既定で許可しているドメイン
 
@@ -146,6 +168,7 @@ docker compose exec sandbox bash -lc '
   curl -sS -o /dev/null -w "%{http_code}\n" https://api.anthropic.com/   # 404 など: 到達できる
   curl -sS -o /dev/null https://example.com/                             # 403: プロキシが拒否
   curl -sS -o /dev/null --noproxy "*" --max-time 5 https://example.com/  # 失敗: 直接通信は経路なし
+  curl -sS -o /dev/null --max-time 5 telnet://proxy:80                   # 失敗: プロキシ以外のポートはファイアウォールが拒否
 '
 ```
 
@@ -162,10 +185,12 @@ docker compose exec sandbox bash -lc '
 - `pids_limit: 512`、`mem_limit: 4g`、`cpus: 2`
 - `/tmp` は 512MB の tmpfs
 - proxy コンテナも capabilities を最小限（Squid の権限降格に必要な分だけ）に絞り、`no-new-privileges` を有効化
+- firewall コンテナは `NET_ADMIN` だけを持ち、ルートファイルシステムは読み取り専用
 
 ## トラブルシューティング
 
 - **`/workspace` に書き込めない (`Permission denied`)**: ホストのユーザーとコンテナの uid が一致していません。`.env` の `USER_UID` / `USER_GID` を `id -u` / `id -g` の値にして `docker compose up -d --build` で作り直してください。
 - **ログインし直したい**: `docker compose down -v` で設定ボリュームを削除してから起動し直します。
 - **何かのコマンドが `403 Forbidden` やタイムアウトで失敗する**: プロキシが接続先を拒否しています。`docker compose logs proxy` で `TCP_DENIED` の行を探し、必要なドメインなら `proxy/allowed-domains.txt` に追加してください。
+- **sandbox から突然どこにもつながらなくなった**: `firewall` コンテナが再起動した可能性があります。`docker compose ps` で確認し、`docker compose restart sandbox` を実行してください。
 - **Node.js の `fetch()` など、プロキシ設定を読まないツールが通信できない**: 内部ネットワークでは直接通信できないため想定どおりの動作です。そのツールのプロキシ設定を使ってください（Node.js 24 以降なら `NODE_USE_ENV_PROXY=1`）。

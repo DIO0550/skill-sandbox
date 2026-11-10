@@ -8,18 +8,18 @@ services:
         USER_GID: ${USER_GID:-1000}
     image: skill-sandbox:latest
     container_name: skill-sandbox
-    hostname: skill-sandbox
     # Keep an interactive shell alive so `up -d` + `exec`, `run`, and `attach` all work.
     stdin_open: true
     tty: true
     working_dir: /workspace
     depends_on:
-      proxy:
+      firewall:
         condition: service_healthy
-    # 外部への経路がない内部ネットワークだけに接続する。
-    # 外に出られるのは proxy 経由で、許可リストにあるドメインだけ。
-    networks:
-      - sandbox
+    # firewall コンテナのネットワーク名前空間に相乗りする。
+    # そこは外部への経路がない内部ネットワークで、さらに iptables で
+    # proxy:3128 以外への通信を拒否している。外に出られるのは proxy 経由で、
+    # 許可リストにあるドメインだけ。
+    network_mode: service:firewall
     environment:
       HTTPS_PROXY: http://proxy:3128
       HTTP_PROXY: http://proxy:3128
@@ -50,6 +50,36 @@ services:
     cpus: 2
     tmpfs:
       - /tmp:size=512m
+
+  firewall:
+    build: ./firewall
+    image: skill-sandbox-firewall:latest
+    container_name: skill-sandbox-firewall
+    hostname: skill-sandbox
+    init: true
+    depends_on:
+      proxy:
+        condition: service_healthy
+    networks:
+      - sandbox
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/firewall-ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    # iptables を設定する権限だけを持つ。sandbox 側には与えない。
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /run
+    pids_limit: 32
+    mem_limit: 64m
+    restart: unless-stopped
 
   proxy:
     image: ubuntu/squid:6.6-24.04_beta
