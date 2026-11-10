@@ -15,6 +15,9 @@ claude.ai
 platform.claude.com
 
 # --- 必要に応じてコメントを外す ---
+# ネイティブインストーラー / `claude update` / 実行ファイルを含むプラグインのダウンロード。
+# このイメージは npm でインストールし、更新はイメージの再ビルドで行うため既定では不要
+#downloads.claude.ai
 # プラグインのインストール、npx で起動する MCP サーバー
 #registry.npmjs.org
 # GitHub 上のプラグインマーケットプレイス、git clone

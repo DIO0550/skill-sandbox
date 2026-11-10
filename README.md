@@ -70,7 +70,21 @@ docker compose down -v     # ログイン状態や設定のボリュームも削
 | `CLAUDE_CODE_VERSION` | `latest` | インストールする Claude Code のバージョン。固定したい場合に指定 |
 | `ANTHROPIC_API_KEY` | （空） | 指定すると対話ログインの代わりに API キーで認証 |
 
-`USER_UID` / `USER_GID` や `CLAUDE_CODE_VERSION` を変えたら `docker compose build` で再ビルドしてください。コンテナ内の自動アップデートは無効化しているので、Claude Code の更新も再ビルドで行います。
+`USER_UID` / `USER_GID` や `CLAUDE_CODE_VERSION` を変えたら `docker compose build` で再ビルドしてください。
+
+### Claude Code の更新
+
+コンテナ内の自動アップデートと `claude update` は使わず、イメージの再ビルドで更新します。
+
+```bash
+# 最新版に上げる（CLAUDE_CODE_VERSION=latest のままだとビルドキャッシュが効いて更新されないため --no-cache を付ける）
+docker compose build --no-cache sandbox
+docker compose up -d
+
+# 特定のバージョンに固定する場合は .env の CLAUDE_CODE_VERSION を書き換えて再ビルド
+```
+
+ネイティブインストーラーの自動アップデートや `claude update` は `downloads.claude.ai` に接続しますが、このイメージは npm でインストールしており、ビルドはプロキシの制限の外で行われるため、許可リストに `downloads.claude.ai` を入れる必要はありません。実行ファイルを含むプラグインを使う場合だけ、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) のコメントを外してください。
 
 ## ネットワーク制限（許可リスト型プロキシ）
 
