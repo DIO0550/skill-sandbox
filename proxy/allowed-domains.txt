@@ -1,0 +1,34 @@
+# sandbox コンテナから接続を許可するドメイン（1 行に 1 つ）
+#
+# - "example.com"  は example.com だけに一致
+# - ".example.com" は example.com とそのサブドメインすべてに一致
+# - 変更後は `docker compose exec proxy reload` で反映（コンテナの再起動は不要）
+#
+# 根拠: https://code.claude.com/docs/en/network-config#network-access-requirements
+
+# --- Claude Code の動作に必須 ---
+# Claude API（WebFetch のドメイン安全チェック、機能フラグ取得も含む）
+api.anthropic.com
+# claude.ai アカウントでの認証
+claude.ai
+# OAuth トークンの交換・更新（claude.ai / Console どちらのログインでも必要）
+platform.claude.com
+
+# --- 必要に応じてコメントを外す ---
+# ネイティブインストーラー / `claude update` / 実行ファイルを含むプラグインのダウンロード。
+# このイメージは npm でインストールし、更新はイメージの再ビルドで行うため既定では不要
+#downloads.claude.ai
+# プラグインのインストール、npx で起動する MCP サーバー
+#registry.npmjs.org
+# GitHub 上のプラグインマーケットプレイス、git clone
+#github.com
+#codeload.github.com
+# /release-notes の変更履歴
+#raw.githubusercontent.com
+# claude-code-guide エージェントによるドキュメント参照
+#code.claude.com
+# claude.ai の MCP コネクタ（compose.yaml の ENABLE_CLAUDEAI_MCP_SERVERS も変更すること）
+#mcp-proxy.anthropic.com
+# Python パッケージ
+#pypi.org
+#files.pythonhosted.org

@@ -1,0 +1,137 @@
+services:
+  sandbox:
+    build:
+      context: .
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+    image: skill-sandbox:latest
+    container_name: skill-sandbox
+    # Keep an interactive shell alive so `up -d` + `exec`, `run`, and `attach` all work.
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    # firewall や proxy を Compose が再起動・再作成したら、sandbox も起動し直す。
+    # sandbox は firewall のネットワーク名前空間を借りているので、起動し直さないと
+    # 古い名前空間に取り残されて通信できなくなる。
+    depends_on:
+      firewall:
+        condition: service_healthy
+        restart: true
+      proxy:
+        condition: service_healthy
+        restart: true
+    # firewall コンテナのネットワーク名前空間に相乗りする。
+    # そこは外部への経路がない内部ネットワークで、さらに iptables で
+    # プロキシ（proxy:3128）以外への通信を拒否している。外に出られるのは proxy 経由で、
+    # 許可リストにあるドメインだけ。
+    network_mode: service:firewall
+    # firewall コンテナが Compose を介さずに再起動すると、sandbox は通信手段を失う（制限が外れることはない）。
+    # その状態を `docker compose ps` で unhealthy として見えるようにする。
+    healthcheck:
+      test: ["CMD-SHELL", "awk 'NR>2 && $$1 != \"lo:\" {found=1} END {exit !found}' /proc/net/dev"]
+      interval: 10s
+      timeout: 3s
+      retries: 1
+    environment:
+      HTTPS_PROXY: http://proxy:3128
+      HTTP_PROXY: http://proxy:3128
+      https_proxy: http://proxy:3128
+      http_proxy: http://proxy:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+      # 許可リストに入れていない通信先を使う機能を止める
+      # （テレメトリ・エラーレポート、claude.ai の MCP コネクタ、Artifact）
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      ENABLE_CLAUDEAI_MCP_SERVERS: "false"
+      CLAUDE_CODE_DISABLE_ARTIFACT: "1"
+      # Optional: leave unset to use `claude` / `/login` interactively instead.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Only these two host folders are visible inside the container.
+      - ./workspace/skills:/home/claude/.claude/skills
+      - ./workspace/project:/workspace
+      # Login state and settings persist here, isolated from the host's ~/.claude.
+      - claude-config:/home/claude/.claude
+    # Hardening: no Linux capabilities, no privilege escalation, bounded resources.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2
+    tmpfs:
+      # Docker の tmpfs は既定で noexec。スキルが /tmp に置いたスクリプトや
+      # ネイティブモジュールを実行できるよう exec を付ける
+      - /tmp:size=512m,exec,mode=1777
+
+  firewall:
+    build: ./firewall
+    image: skill-sandbox-firewall:latest
+    container_name: skill-sandbox-firewall
+    hostname: skill-sandbox
+    init: true
+    depends_on:
+      proxy:
+        condition: service_healthy
+        # proxy が作り直されて IP アドレスが変わっても、ルールを設定し直す
+        restart: true
+    networks:
+      - sandbox
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/firewall-ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    # iptables を設定する権限だけを持つ。sandbox 側には与えない。
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /run
+    pids_limit: 32
+    mem_limit: 64m
+    restart: unless-stopped
+
+  proxy:
+    build: ./proxy
+    image: skill-sandbox-proxy:latest
+    container_name: skill-sandbox-proxy
+    # 内部ネットワーク（sandbox 側）と外部ネットワークの両方に足を持つ唯一のコンテナ。
+    # ポートはホストに公開しない。
+    networks:
+      - sandbox
+      - egress
+    volumes:
+      # ディレクトリごとマウントするので、エディタで保存し直しても反映される
+      - ./proxy:/etc/squid/sandbox:ro
+    healthcheck:
+      test: ["CMD", "squid", "-k", "check", "-f", "/etc/squid/sandbox/squid.conf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # 一般ユーザーで動くので、権限は何も与えない
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    pids_limit: 256
+    mem_limit: 256m
+    restart: unless-stopped
+
+networks:
+  sandbox:
+    internal: true
+  egress:
+
+volumes:
+  claude-config:
