@@ -12,14 +12,28 @@ services:
     stdin_open: true
     tty: true
     working_dir: /workspace
+    # firewall や proxy を Compose が再起動・再作成したら、sandbox も起動し直す。
+    # sandbox は firewall のネットワーク名前空間を借りているので、起動し直さないと
+    # 古い名前空間に取り残されて通信できなくなる。
     depends_on:
       firewall:
         condition: service_healthy
+        restart: true
+      proxy:
+        condition: service_healthy
+        restart: true
     # firewall コンテナのネットワーク名前空間に相乗りする。
     # そこは外部への経路がない内部ネットワークで、さらに iptables で
-    # proxy:3128 以外への通信を拒否している。外に出られるのは proxy 経由で、
+    # プロキシ（proxy:3128）以外への通信を拒否している。外に出られるのは proxy 経由で、
     # 許可リストにあるドメインだけ。
     network_mode: service:firewall
+    # firewall コンテナが Compose を介さずに再起動すると、sandbox は通信手段を失う（制限が外れることはない）。
+    # その状態を `docker compose ps` で unhealthy として見えるようにする。
+    healthcheck:
+      test: ["CMD-SHELL", "awk 'NR>2 && $$1 != \"lo:\" {found=1} END {exit !found}' /proc/net/dev"]
+      interval: 10s
+      timeout: 3s
+      retries: 1
     environment:
       HTTPS_PROXY: http://proxy:3128
       HTTP_PROXY: http://proxy:3128
@@ -49,7 +63,9 @@ services:
     mem_limit: 4g
     cpus: 2
     tmpfs:
-      - /tmp:size=512m
+      # Docker の tmpfs は既定で noexec。スキルが /tmp に置いたスクリプトや
+      # ネイティブモジュールを実行できるよう exec を付ける
+      - /tmp:size=512m,exec,mode=1777
 
   firewall:
     build: ./firewall
@@ -60,6 +76,8 @@ services:
     depends_on:
       proxy:
         condition: service_healthy
+        # proxy が作り直されて IP アドレスが変わっても、ルールを設定し直す
+        restart: true
     networks:
       - sandbox
     healthcheck:
@@ -82,9 +100,9 @@ services:
     restart: unless-stopped
 
   proxy:
-    image: ubuntu/squid:6.6-24.04_beta
+    build: ./proxy
+    image: skill-sandbox-proxy:latest
     container_name: skill-sandbox-proxy
-    command: ["-f", "/etc/squid/sandbox/squid.conf", "-NYC"]
     # 内部ネットワーク（sandbox 側）と外部ネットワークの両方に足を持つ唯一のコンテナ。
     # ポートはホストに公開しない。
     networks:
@@ -98,16 +116,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    # 一般ユーザーで動くので、権限は何も与えない
     cap_drop:
       - ALL
-    cap_add:
-      # squid は root で起動してから proxy ユーザーに降格する
-      - SETUID
-      - SETGID
-      - CHOWN
-      - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     pids_limit: 256
     mem_limit: 256m
     restart: unless-stopped

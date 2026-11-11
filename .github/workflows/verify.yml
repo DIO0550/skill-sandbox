@@ -1,0 +1,59 @@
+# 何も入っていない環境でイメージをビルドして起動し、サンドボックスの制限が効いていることを確認する
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .env を用意する（ランナーの uid / gid に合わせる）
+        run: |
+          cp .env.example .env
+          sed -i "s/^USER_UID=.*/USER_UID=$(id -u)/; s/^USER_GID=.*/USER_GID=$(id -g)/" .env
+          grep -E '^USER_' .env
+
+      - name: ホスト側の 3128 番ポートにおとりのサーバーを立てる
+        # sandbox からホストのポートに届かないことを verify.sh が確認する。
+        # 何も待ち受けていないと「届かない」のが当たり前になってしまうので、実際に待ち受けておく
+        run: |
+          nohup python3 -m http.server 3128 --bind 0.0.0.0 >/dev/null 2>&1 &
+          sleep 2
+          curl -fsS -o /dev/null http://127.0.0.1:3128/ && echo "decoy is listening on 0.0.0.0:3128"
+
+      - name: ビルド
+        run: docker compose build
+
+      - name: 起動
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: 制限の確認
+        run: ./scripts/verify.sh
+
+      - name: 再起動後も制限が効いていることの確認
+        run: |
+          docker compose restart proxy
+          docker compose up -d --wait --wait-timeout 180
+          ./scripts/verify.sh
+
+      - name: 状態とログ（調査用）
+        if: always()
+        run: |
+          docker version --format 'engine {{.Server.Version}}'
+          docker compose version
+          docker compose ps -a
+          docker compose logs --no-color --tail 200

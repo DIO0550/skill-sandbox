@@ -1,3 +1,7 @@
 .git
-workspace
+.github
 .env
+workspace
+proxy
+firewall
+scripts

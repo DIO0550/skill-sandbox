@@ -20,8 +20,10 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
 
 # Reuse the base image's uid/gid 1000 "node" account, renamed and re-numbered
 # to match the host user so bind-mounted files keep sane ownership.
-RUN groupmod -n "${USERNAME}" -g "${USER_GID}" node \
- && usermod -l "${USERNAME}" -u "${USER_UID}" -g "${USER_GID}" \
+# -o allows ids that already exist in the image (e.g. gid 20 on macOS, gid 100 "users").
+RUN if [ "${USER_UID}" = "0" ]; then echo "USER_UID must not be 0: the sandbox user has to be non-root" >&2; exit 1; fi \
+ && groupmod -o -n "${USERNAME}" -g "${USER_GID}" node \
+ && usermod -o -l "${USERNAME}" -u "${USER_UID}" -g "${USER_GID}" \
       -d "/home/${USERNAME}" -m -s /bin/bash node \
  && mkdir -p "/home/${USERNAME}/.claude/skills" /workspace \
  && chown -R "${USER_UID}:${USER_GID}" "/home/${USERNAME}" /workspace

@@ -2,7 +2,7 @@
 #
 # - "example.com"  は example.com だけに一致
 # - ".example.com" は example.com とそのサブドメインすべてに一致
-# - 変更後は `docker compose exec proxy squid -k reconfigure` で反映
+# - 変更後は `docker compose exec proxy reload` で反映（コンテナの再起動は不要）
 #
 # 根拠: https://code.claude.com/docs/en/network-config#network-access-requirements
 
