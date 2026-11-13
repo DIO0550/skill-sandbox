@@ -95,7 +95,7 @@ docker compose up -d
 
 ## Claude Code 以外の AI ツール
 
-いろいろなエージェントでスキルや作業を試せるよう、次の CLI もイメージに入っています（[`ai-tools/install-ai-tools.sh`](ai-tools/install-ai-tools.sh)）。
+いろいろなエージェントでスキルや作業を試せるよう、次の CLI もイメージに入っています。spec-viewer と同じ gist（[`install-ai-tools.sh`](https://gist.github.com/DIO0550/148b1392cf435ba3562da0d398bee442) と、その前提の [`pnpm-safe-chain-setup.sh`](https://gist.github.com/DIO0550/dcc09dc9d2dcefceb9b0cda183e7ef8e)）を、編集せずにビルド時に取得して実行しています。
 
 | コマンド | ツール |
 | --- | --- |
@@ -105,12 +105,16 @@ docker compose up -d
 | `agy` | Antigravity CLI |
 | `opencode` | OpenCode |
 
-- 各公式インストーラーで `/opt/ai-tools` に root 所有で入れ、コマンドを `/usr/local/bin` にリンクしています。Claude Code と同じく、sandbox のユーザーはバイナリを書き換えられません（各ツールの自動アップデートも効きません）。
+- gist は root 権限・`HOME=/opt/ai-tools` で実行するので、各ツールは `/opt/ai-tools` に root 所有で入ります。後始末は [`ai-tools/link-ai-tools.sh`](ai-tools/link-ai-tools.sh) が行い、コマンドを `/usr/local/bin` にリンクします。Claude Code と同じく、sandbox のユーザーはバイナリを書き換えられません（各ツールの自動アップデートも効きません）。
+- gist は Claude Code のネイティブ版も入れますが、`link-ai-tools.sh` で消しています。`claude` はこれまでどおり npm 版です。
+- gist を更新すると、次のビルドからそのまま反映されます。gist の置き場所は Dockerfile の `SAFE_CHAIN_GIST_URL` / `AI_TOOLS_GIST_URL` で変えられます。
+- gist の前提として pnpm と safe-chain もイメージに入ります（ビルド時のインストールに使うだけで、sandbox のユーザーのシェルには組み込まれません）。
 - **既定ではどのツールも通信できません**。使うツールの接続先を [`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) の「Claude Code 以外の AI ツール」の欄でコメントを外し、`docker compose exec proxy reload` で反映してください。書いてあるのは代表的な接続先なので、足りないときは `docker compose logs proxy` の `TCP_DENIED` の行を見て追加します。
 - ログインは各ツールの案内に従います。コンテナにはブラウザがないので、表示された URL をホストのブラウザで開いてください（Codex は `codex login --device-auth` を使うと手順が簡単です）。
 - Claude Code 以外のログイン情報・設定はホームディレクトリ（コンテナ内）に保存されるので、`docker compose down` やイメージの再ビルドでコンテナを作り直すと消えます。止めるだけなら `docker compose stop` / `docker compose start` を使ってください。
 - 合計で 1.7GB ほどあるため、イメージが大きくなり、ビルドにも時間がかかります。
-- 更新は Claude Code と同じくイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。インストーラーは毎回その時点の最新版を入れます。
+- 更新は Claude Code と同じくイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。gist とインストーラーは毎回その時点の最新版を取得します。
+- 各ツールが使えて、書き換えられないことは [`scripts/verify.sh`](scripts/verify.sh) でも確認します。
 
 ## ネットワーク制限（ファイアウォール＋許可リスト型プロキシ）
 

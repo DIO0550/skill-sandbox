@@ -45,6 +45,10 @@ let failed = false;
 const ok = (m) => console.log('OK  ' + m);
 const ng = (m, detail) => { failed = true; console.log('NG  ' + m + (detail ? `  [${detail}]` : '')); };
 const BLOCK_CN = 'blocked-by-skill-sandbox-proxy';
+// ファイル自体か、置かれているディレクトリ（消して置き換えられる）に書き込めるか
+const writable = (p) => [p, require('path').dirname(p)].some((x) => {
+  try { fs.accessSync(x, fs.constants.W_OK); return true; } catch { return false; }
+});
 
 const proxyUrl = new URL(process.env.HTTPS_PROXY || process.env.https_proxy || 'http://proxy:3128');
 
@@ -161,6 +165,23 @@ const show = (r) => JSON.stringify(r);
   // --- Claude Code ---
   try { ok('claude コマンドが使える（' + execFileSync('claude', ['--version'], { encoding: 'utf8' }).trim() + '）'); }
   catch (e) { ng('claude コマンドが実行できない', e.message.split('\n')[0]); }
+  // ログインシェルでも npm 版（root 所有）の claude が使われ、sandbox のユーザーが書き換えられない
+  try {
+    const claudePath = fs.realpathSync(execFileSync('bash', ['-lc', 'command -v claude'], { encoding: 'utf8' }).trim());
+    if (!claudePath.includes('/node_modules/@anthropic-ai/claude-code/')) ng('claude が npm 版ではない', claudePath);
+    else if (writable(claudePath)) ng('claude を sandbox のユーザーが書き換えられる', claudePath);
+    else ok('claude は npm 版で、書き換えられない');
+  } catch (e) { ng('claude の場所を確認できない', e.message.split('\n')[0]); }
+
+  // --- Claude Code 以外の AI ツール（gist で入れたもの） ---
+  for (const cmd of ['copilot', 'codex', 'cursor-agent', 'agent', 'agy', 'opencode']) {
+    try {
+      const target = fs.realpathSync(execFileSync('bash', ['-lc', `command -v ${cmd}`], { encoding: 'utf8' }).trim());
+      if (writable(target)) { ng(`${cmd} を sandbox のユーザーが書き換えられる`, target); continue; }
+      const ver = execFileSync(cmd, ['--version'], { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }).trim().split('\n')[0];
+      ok(`${cmd} が使える（${ver}）`);
+    } catch (e) { ng(`${cmd} が実行できない`, (e.message || '').split('\n')[0]); }
+  }
 
   process.exit(failed ? 1 : 0);
 })();
