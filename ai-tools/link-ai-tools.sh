@@ -30,12 +30,12 @@ for cmd in "${COMMANDS[@]}"; do
   fi
 done
 
-# claude が npm 版のままか確認する（npm 版の実体は @anthropic-ai/claude-code か、
-# プラットフォーム別の @anthropic-ai/claude-code-linux-x64 などに置かれる）
+# claude が npm 版のまま（gist のネイティブ版に置き換わっていない）か確認する。
+# npm 版は postinstall で /usr/local/bin/claude 自体がネイティブバイナリになるので、名前ではなく場所で見る
 claude_target="$(readlink -f "$LINK_DIR/claude")"
 case "$claude_target" in
-  */node_modules/@anthropic-ai/claude-code*) ;;
-  *) echo "[ai-tools] $LINK_DIR/claude is not the npm-installed Claude Code: $claude_target" >&2; exit 1 ;;
+  "$AI_HOME"/*|/root/*|/home/*)
+    echo "[ai-tools] $LINK_DIR/claude points at a non-npm Claude Code: $claude_target" >&2; exit 1 ;;
 esac
 
 chown -R root:root "$AI_HOME"
