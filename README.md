@@ -109,7 +109,7 @@ docker compose up -d
 - gist は Claude Code のネイティブ版も入れますが、`link-ai-tools.sh` で消しています。`claude` はこれまでどおり npm 版です。
 - gist を更新すると、次のビルドからそのまま反映されます。gist の置き場所は Dockerfile の `SAFE_CHAIN_GIST_URL` / `AI_TOOLS_GIST_URL` で変えられます。
 - gist の前提として pnpm と safe-chain もイメージに入ります（ビルド時のインストールに使うだけで、sandbox のユーザーのシェルには組み込まれません）。
-- **既定ではどのツールも通信できません**。使うツールの接続先を [`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) の「Claude Code 以外の AI ツール」の欄でコメントを外し、`docker compose exec proxy reload` で反映してください。書いてあるのは代表的な接続先なので、足りないときは `docker compose logs proxy` の `TCP_DENIED` の行を見て追加します。
+- 各ツールのログインと API の接続先は、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) の「Claude Code 以外の AI ツール」の欄で**既定で許可しています**（Copilot CLI のログイン用に `github.com` も許可）。使わないツールの行はコメントアウトし、`docker compose exec proxy reload` で反映すれば閉じられます。書いてあるのは代表的な接続先なので、足りないときは `docker compose logs proxy` の `TCP_DENIED` の行を見て追加します。
 - ログインは各ツールの案内に従います。コンテナにはブラウザがないので、表示された URL をホストのブラウザで開いてください（Codex は `codex login --device-auth` を使うと手順が簡単です）。
 - Claude Code 以外のログイン情報・設定はホームディレクトリ（コンテナ内）に保存されるので、`docker compose down` やイメージの再ビルドでコンテナを作り直すと消えます。止めるだけなら `docker compose stop` / `docker compose start` を使ってください。
 - 合計で 1.7GB ほどあるため、イメージが大きくなり、ビルドにも時間がかかります。
@@ -159,7 +159,7 @@ docker compose exec firewall iptables -L -v -n
 
 ### 既定で許可しているドメイン
 
-[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものだけです。
+[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものは次のとおりです。このほかに、イメージに入っている Claude Code 以外の AI ツールの接続先（と `github.com`）も許可しています（[Claude Code 以外の AI ツール](#claude-code-以外の-ai-ツール)）。
 
 | ドメイン | 用途 |
 | --- | --- |
@@ -186,7 +186,7 @@ docker compose exec proxy reload
 
 `reload` は設定を検査してから反映します。書き間違いがあるときは何も変更せずにエラーを表示するので、動作中のプロキシが止まることはありません。
 
-`example.com` は完全一致、`.example.com` はサブドメインも含めて一致します。プラグインのインストール（`registry.npmjs.org`、`github.com`）や PyPI など、よく使うものはファイル内にコメントアウトして用意してあります。
+`example.com` は完全一致、`.example.com` はサブドメインも含めて一致します。プラグインのインストール（`registry.npmjs.org`）や PyPI など、よく使うものはファイル内にコメントアウトして用意してあります。
 
 許可したドメインには、コンテナ内のコードが自由にデータを送れることに注意してください。必要なものだけを追加するのが原則です。
 
