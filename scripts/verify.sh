@@ -168,7 +168,7 @@ const show = (r) => JSON.stringify(r);
   // ログインシェルでも npm 版（root 所有）の claude が使われ、sandbox のユーザーが書き換えられない
   try {
     const claudePath = fs.realpathSync(execFileSync('bash', ['-lc', 'command -v claude'], { encoding: 'utf8' }).trim());
-    if (!claudePath.includes('/node_modules/@anthropic-ai/claude-code/')) ng('claude が npm 版ではない', claudePath);
+    if (!claudePath.includes('/node_modules/@anthropic-ai/claude-code')) ng('claude が npm 版ではない', claudePath);
     else if (writable(claudePath)) ng('claude を sandbox のユーザーが書き換えられる', claudePath);
     else ok('claude は npm 版で、書き換えられない');
   } catch (e) { ng('claude の場所を確認できない', e.message.split('\n')[0]); }
