@@ -2,8 +2,8 @@
 # gist（install-ai-tools.sh）で /opt/ai-tools に入れた AI ツールの後始末をする。
 # Dockerfile から root で実行する。gist 自体は編集せずにそのまま使う。
 #
-#   - gist は Claude Code のネイティブ版も入れるが、このイメージでは npm 版（/usr/local/bin/claude）を
-#     使うので消す
+#   - gist は Claude Code のネイティブ版も入れる（そのとき npm 版があれば消される）。このイメージでは
+#     npm 版を使い、gist の後に Dockerfile で入れるので、ネイティブ版は消す
 #   - 残りのコマンドを /usr/local/bin にリンクする
 #   - /opt/ai-tools を root 所有・読み取りと実行だけ許可にする（sandbox のユーザーは書き換えられない）
 set -euo pipefail
@@ -30,13 +30,15 @@ for cmd in "${COMMANDS[@]}"; do
   fi
 done
 
-# claude が npm 版のまま（gist のネイティブ版に置き換わっていない）か確認する。
-# npm 版は postinstall で /usr/local/bin/claude 自体がネイティブバイナリになるので、名前ではなく場所で見る
-claude_target="$(readlink -f "$LINK_DIR/claude")"
-case "$claude_target" in
-  "$AI_HOME"/*|/root/*|/home/*)
-    echo "[ai-tools] $LINK_DIR/claude points at a non-npm Claude Code: $claude_target" >&2; exit 1 ;;
-esac
+# gist のネイティブ版の claude が /usr/local/bin に残っていないか確認する
+# （npm 版の Claude Code は、この後 Dockerfile で入れる）
+if [ -e "$LINK_DIR/claude" ] || [ -L "$LINK_DIR/claude" ]; then
+  case "$(readlink -f "$LINK_DIR/claude")" in
+    "$AI_HOME"/*|/root/*|/home/*)
+      echo "[ai-tools] removing the gist's Claude Code link: $LINK_DIR/claude" >&2
+      rm -f "$LINK_DIR/claude" ;;
+  esac
+fi
 
 chown -R root:root "$AI_HOME"
 chmod -R go-w,a+rX "$AI_HOME"
