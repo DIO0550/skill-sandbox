@@ -8,6 +8,7 @@ Claude Code のスキル（Agent Skills）を、ホスト環境から隔離さ�
 - 外部への通信は許可リスト型プロキシ（Squid）経由のみ。許可したドメイン以外には接続できません
 - さらに iptables のファイアウォールで、sandbox からはプロキシ以外（ホストや他のコンテナを含む）への通信をすべて拒否します
 - 制限が実際に効いているかは [`scripts/verify.sh`](scripts/verify.sh) で確認できます
+- Claude Code のほかに、Copilot CLI・Codex・Cursor CLI・Antigravity・OpenCode も入っています（[詳しく](#claude-code-以外の-ai-ツール)）
 
 ## 必要なもの
 
@@ -91,6 +92,25 @@ docker compose up -d
 ```
 
 ネイティブインストーラーの自動アップデートや `claude update` は `downloads.claude.ai` に接続しますが、このイメージは npm でインストールしており、ビルドはプロキシの制限の外で行われるため、許可リストに `downloads.claude.ai` を入れる必要はありません。実行ファイルを含むプラグインを使う場合だけ、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) のコメントを外してください。
+
+## Claude Code 以外の AI ツール
+
+いろいろなエージェントでスキルや作業を試せるよう、次の CLI もイメージに入っています（[`ai-tools/install-ai-tools.sh`](ai-tools/install-ai-tools.sh)）。
+
+| コマンド | ツール |
+| --- | --- |
+| `copilot` | GitHub Copilot CLI |
+| `codex` | OpenAI Codex CLI |
+| `cursor-agent`（`agent`） | Cursor CLI |
+| `agy` | Antigravity CLI |
+| `opencode` | OpenCode |
+
+- 各公式インストーラーで `/opt/ai-tools` に root 所有で入れ、コマンドを `/usr/local/bin` にリンクしています。Claude Code と同じく、sandbox のユーザーはバイナリを書き換えられません（各ツールの自動アップデートも効きません）。
+- **既定ではどのツールも通信できません**。使うツールの接続先を [`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) の「Claude Code 以外の AI ツール」の欄でコメントを外し、`docker compose exec proxy reload` で反映してください。書いてあるのは代表的な接続先なので、足りないときは `docker compose logs proxy` の `TCP_DENIED` の行を見て追加します。
+- ログインは各ツールの案内に従います。コンテナにはブラウザがないので、表示された URL をホストのブラウザで開いてください（Codex は `codex login --device-auth` を使うと手順が簡単です）。
+- Claude Code 以外のログイン情報・設定はホームディレクトリ（コンテナ内）に保存されるので、`docker compose down` やイメージの再ビルドでコンテナを作り直すと消えます。止めるだけなら `docker compose stop` / `docker compose start` を使ってください。
+- 合計で 1.7GB ほどあるため、イメージが大きくなり、ビルドにも時間がかかります。
+- 更新は Claude Code と同じくイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。インストーラーは毎回その時点の最新版を入れます。
 
 ## ネットワーク制限（ファイアウォール＋許可リスト型プロキシ）
 

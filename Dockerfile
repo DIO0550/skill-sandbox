@@ -18,6 +18,12 @@ RUN apt-get update \
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
  && npm cache clean --force
 
+# Other AI coding CLIs (GitHub Copilot CLI, Codex, Cursor CLI, Antigravity, OpenCode),
+# installed root-owned under /opt/ai-tools and linked into /usr/local/bin.
+# Their API hosts are not allowed by default: see proxy/allowed-domains.txt.
+RUN --mount=type=bind,source=ai-tools/install-ai-tools.sh,target=/tmp/install-ai-tools.sh \
+    bash /tmp/install-ai-tools.sh
+
 # Reuse the base image's uid/gid 1000 "node" account, renamed and re-numbered
 # to match the host user so bind-mounted files keep sane ownership.
 # -o allows ids that already exist in the image (e.g. gid 20 on macOS, gid 100 "users").
