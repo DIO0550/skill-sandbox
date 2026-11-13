@@ -20,8 +20,8 @@ platform.claude.com
 #downloads.claude.ai
 # プラグインのインストール、npx で起動する MCP サーバー
 #registry.npmjs.org
-# GitHub 上のプラグインマーケットプレイス、git clone
-#github.com
+# GitHub 上のプラグインマーケットプレイス、git clone。Copilot CLI のログインにも使う
+github.com
 #codeload.github.com
 # /release-notes の変更履歴
 #raw.githubusercontent.com
@@ -32,3 +32,35 @@ platform.claude.com
 # Python パッケージ
 #pypi.org
 #files.pythonhosted.org
+
+# --- Claude Code 以外の AI ツール（イメージに入っている CLI 用。使わないものはコメントアウトしてよい） ---
+# 公式ドキュメントや既知の情報をもとにした代表的な接続先。足りないときは
+# `docker compose logs proxy` の TCP_DENIED の行を見て追加する
+#
+# GitHub Copilot CLI（copilot）: ログインは github.com（上の「GitHub 上の…」の行で許可）と api.github.com、
+# 推論は *.githubcopilot.com
+api.github.com
+.githubcopilot.com
+#
+# OpenAI Codex CLI（codex）: ChatGPT ログインと応答のストリーミングに chatgpt.com を使う
+api.openai.com
+auth.openai.com
+chatgpt.com
+#
+# Cursor CLI（cursor-agent）: API は *.cursor.sh。サインインは cursor.com と accounts.spacex.ai / accounts.x.ai
+.cursor.sh
+.cursorapi.com
+cursor.com
+accounts.spacex.ai
+accounts.x.ai
+#
+# Antigravity CLI（agy）: Google アカウントでのログインと Gemini API
+accounts.google.com
+oauth2.googleapis.com
+generativelanguage.googleapis.com
+antigravity.google
+#
+# OpenCode（opencode）: モデル一覧の取得に models.dev、OpenCode Zen に opencode.ai。
+# モデル自体はプロバイダーの API に接続する（Anthropic なら api.anthropic.com で、上で許可済み）
+models.dev
+.opencode.ai

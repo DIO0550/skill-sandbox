@@ -8,6 +8,7 @@ Claude Code のスキル（Agent Skills）を、ホスト環境から隔離さ�
 - 外部への通信は許可リスト型プロキシ（Squid）経由のみ。許可したドメイン以外には接続できません
 - さらに iptables のファイアウォールで、sandbox からはプロキシ以外（ホストや他のコンテナを含む）への通信をすべて拒否します
 - 制限が実際に効いているかは [`scripts/verify.sh`](scripts/verify.sh) で確認できます
+- Claude Code のほかに、Copilot CLI・Codex・Cursor CLI・Antigravity・OpenCode も入っています（[詳しく](#claude-code-以外の-ai-ツール)）
 
 ## 必要なもの
 
@@ -92,6 +93,29 @@ docker compose up -d
 
 ネイティブインストーラーの自動アップデートや `claude update` は `downloads.claude.ai` に接続しますが、このイメージは npm でインストールしており、ビルドはプロキシの制限の外で行われるため、許可リストに `downloads.claude.ai` を入れる必要はありません。実行ファイルを含むプラグインを使う場合だけ、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) のコメントを外してください。
 
+## Claude Code 以外の AI ツール
+
+いろいろなエージェントでスキルや作業を試せるよう、次の CLI もイメージに入っています。spec-viewer と同じ gist（[`install-ai-tools.sh`](https://gist.github.com/DIO0550/148b1392cf435ba3562da0d398bee442) と、その前提の [`pnpm-safe-chain-setup.sh`](https://gist.github.com/DIO0550/dcc09dc9d2dcefceb9b0cda183e7ef8e)）を、編集せずにビルド時に取得して実行しています。
+
+| コマンド | ツール |
+| --- | --- |
+| `copilot` | GitHub Copilot CLI |
+| `codex` | OpenAI Codex CLI |
+| `cursor-agent`（`agent`） | Cursor CLI |
+| `agy` | Antigravity CLI |
+| `opencode` | OpenCode |
+
+- gist は root 権限・`HOME=/opt/ai-tools` で実行するので、各ツールは `/opt/ai-tools` に root 所有で入ります。後始末は [`ai-tools/link-ai-tools.sh`](ai-tools/link-ai-tools.sh) が行い、コマンドを `/usr/local/bin` にリンクします。Claude Code と同じく、sandbox のユーザーはバイナリを書き換えられません（各ツールの自動アップデートも効きません）。
+- gist は Claude Code のネイティブ版も入れますが、`link-ai-tools.sh` で消しています。`claude` はこれまでどおり npm 版です。
+- gist を更新すると、次のビルドからそのまま反映されます。gist の置き場所は Dockerfile の `SAFE_CHAIN_GIST_URL` / `AI_TOOLS_GIST_URL` で変えられます。
+- gist の前提として pnpm と safe-chain もイメージに入ります（ビルド時のインストールに使うだけで、sandbox のユーザーのシェルには組み込まれません）。
+- 各ツールのログインと API の接続先は、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) の「Claude Code 以外の AI ツール」の欄で**既定で許可しています**（Copilot CLI のログイン用に `github.com` も許可）。使わないツールの行はコメントアウトし、`docker compose exec proxy reload` で反映すれば閉じられます。書いてあるのは代表的な接続先なので、足りないときは `docker compose logs proxy` の `TCP_DENIED` の行を見て追加します。
+- ログインは各ツールの案内に従います。コンテナにはブラウザがないので、表示された URL をホストのブラウザで開いてください（Codex は `codex login --device-auth` を使うと手順が簡単です）。
+- Claude Code 以外のログイン情報・設定はホームディレクトリ（コンテナ内）に保存されるので、`docker compose down` やイメージの再ビルドでコンテナを作り直すと消えます。止めるだけなら `docker compose stop` / `docker compose start` を使ってください。
+- 合計で 1.7GB ほどあるため、イメージが大きくなり、ビルドにも時間がかかります。
+- 更新は Claude Code と同じくイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。gist とインストーラーは毎回その時点の最新版を取得します。
+- 各ツールが使えて、書き換えられないことは [`scripts/verify.sh`](scripts/verify.sh) でも確認します。
+
 ## ネットワーク制限（ファイアウォール＋許可リスト型プロキシ）
 
 ```
@@ -135,7 +159,7 @@ docker compose exec firewall iptables -L -v -n
 
 ### 既定で許可しているドメイン
 
-[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものだけです。
+[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものは次のとおりです。このほかに、イメージに入っている Claude Code 以外の AI ツールの接続先（と `github.com`）も許可しています（[Claude Code 以外の AI ツール](#claude-code-以外の-ai-ツール)）。
 
 | ドメイン | 用途 |
 | --- | --- |
@@ -162,7 +186,7 @@ docker compose exec proxy reload
 
 `reload` は設定を検査してから反映します。書き間違いがあるときは何も変更せずにエラーを表示するので、動作中のプロキシが止まることはありません。
 
-`example.com` は完全一致、`.example.com` はサブドメインも含めて一致します。プラグインのインストール（`registry.npmjs.org`、`github.com`）や PyPI など、よく使うものはファイル内にコメントアウトして用意してあります。
+`example.com` は完全一致、`.example.com` はサブドメインも含めて一致します。プラグインのインストール（`registry.npmjs.org`）や PyPI など、よく使うものはファイル内にコメントアウトして用意してあります。
 
 許可したドメインには、コンテナ内のコードが自由にデータを送れることに注意してください。必要なものだけを追加するのが原則です。
 
