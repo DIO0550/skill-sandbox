@@ -42,13 +42,12 @@ services:
       NO_PROXY: localhost,127.0.0.1
       no_proxy: localhost,127.0.0.1
       # 許可リストに入れていない通信先を使う機能を止める
-      # （エラーレポート、claude.ai の MCP コネクタ、Artifact）。
+      # （エラーレポート、claude.ai の MCP コネクタ）。
       # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC / DISABLE_TELEMETRY / DO_NOT_TRACK は
       # 機能フラグの取得まで止めて Remote Control などの新機能が使えなくなるので設定しない
       # （自動アップデートは Dockerfile の DISABLE_AUTOUPDATER で止めている）
       DISABLE_ERROR_REPORTING: "1"
       ENABLE_CLAUDEAI_MCP_SERVERS: "false"
-      CLAUDE_CODE_DISABLE_ARTIFACT: "1"
       # Optional: leave unset to use `claude` / `/login` interactively instead.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:

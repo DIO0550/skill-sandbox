@@ -159,13 +159,14 @@ docker compose exec firewall iptables -L -v -n
 
 ### 既定で許可しているドメイン
 
-[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものは次のとおりです。このほかに、イメージに入っている Claude Code 以外の AI ツールの接続先（と `github.com`）も許可しています（[Claude Code 以外の AI ツール](#claude-code-以外の-ai-ツール)）。
+[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものと、Artifact 用のものは次のとおりです。このほかに、イメージに入っている Claude Code 以外の AI ツールの接続先（と `github.com`）も許可しています（[Claude Code 以外の AI ツール](#claude-code-以外の-ai-ツール)）。
 
 | ドメイン | 用途 |
 | --- | --- |
 | `api.anthropic.com` | Claude API（WebFetch のドメイン安全チェック、機能フラグ取得を含む） |
 | `claude.ai` | claude.ai アカウントでの認証 |
 | `platform.claude.com` | OAuth トークンの交換・更新（claude.ai / Console どちらのログインでも必要） |
+| `*.frame.claudeusercontent.com` | [Artifact](https://code.claude.com/docs/en/artifacts.md) の内容の読み込み（Artifact の公開は `api.anthropic.com` 経由） |
 
 許可リストに入れていない通信先を使う機能は、`compose.yaml` の環境変数で止めています。
 
@@ -173,7 +174,6 @@ docker compose exec firewall iptables -L -v -n
 | --- | --- |
 | `DISABLE_ERROR_REPORTING=1` | エラーレポート（Datadog） |
 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` | claude.ai で設定した MCP コネクタ（`mcp-proxy.anthropic.com`） |
-| `CLAUDE_CODE_DISABLE_ARTIFACT=1` | Artifact の読み込み（`*.frame.claudeusercontent.com`） |
 
 自動アップデートは Dockerfile の `DISABLE_AUTOUPDATER=1` で止めています。`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`、`DISABLE_TELEMETRY`、`DO_NOT_TRACK` は**設定しないでください**。これらは Claude Code が Anthropic から機能フラグを取得するのも止めるので、Remote Control、claude.ai と同期したスキル・プラグイン、advisor ツールなど、機能フラグで有効になる新機能が使えなくなります（[公式ドキュメント](https://code.claude.com/docs/en/env-vars#features-that-need-feature-flag-fetching)）。機能フラグの取得先は許可済みの `api.anthropic.com` です。使用状況のテレメトリの一部は Datadog（`http-intake.logs.us5.datadoghq.com`）にも送られますが、許可リストにないのでプロキシで止まります。
 

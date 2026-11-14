@@ -13,6 +13,8 @@ api.anthropic.com
 claude.ai
 # OAuth トークンの交換・更新（claude.ai / Console どちらのログインでも必要）
 platform.claude.com
+# Artifact の内容の読み込み（公開は api.anthropic.com 経由）
+.frame.claudeusercontent.com
 
 # --- 必要に応じてコメントを外す ---
 # ネイティブインストーラー / `claude update` / 実行ファイルを含むプラグインのダウンロード。
