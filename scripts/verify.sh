@@ -173,6 +173,12 @@ const show = (r) => JSON.stringify(r);
     else ok('claude は npm 版で、書き換えられない');
   } catch (e) { ng('claude の場所を確認できない', e.message.split('\n')[0]); }
 
+  // 機能フラグの取得を止める環境変数が設定されていない（設定すると Remote Control などの新機能が使えない）
+  const flagKillers = ['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'DISABLE_TELEMETRY', 'DO_NOT_TRACK',
+    'CLAUDE_CODE_DISABLE_FEATURE_FLAGS', 'DISABLE_GROWTHBOOK'].filter((k) => process.env[k]);
+  if (flagKillers.length === 0) ok('機能フラグの取得を止める環境変数は設定されていない');
+  else ng('機能フラグの取得を止める環境変数が設定されている（新機能が使えない）', flagKillers.join(','));
+
   // --- Claude Code 以外の AI ツール（gist で入れたもの） ---
   for (const cmd of ['copilot', 'codex', 'cursor-agent', 'agent', 'agy', 'opencode']) {
     try {

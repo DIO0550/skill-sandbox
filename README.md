@@ -171,9 +171,11 @@ docker compose exec firewall iptables -L -v -n
 
 | 環境変数 | 止めるもの |
 | --- | --- |
-| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | テレメトリ・エラーレポート（Datadog）、自動アップデートなど必須でない通信 |
+| `DISABLE_ERROR_REPORTING=1` | エラーレポート（Datadog） |
 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` | claude.ai で設定した MCP コネクタ（`mcp-proxy.anthropic.com`） |
 | `CLAUDE_CODE_DISABLE_ARTIFACT=1` | Artifact の読み込み（`*.frame.claudeusercontent.com`） |
+
+自動アップデートは Dockerfile の `DISABLE_AUTOUPDATER=1` で止めています。`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`、`DISABLE_TELEMETRY`、`DO_NOT_TRACK` は**設定しないでください**。これらは Claude Code が Anthropic から機能フラグを取得するのも止めるので、Remote Control、claude.ai と同期したスキル・プラグイン、advisor ツールなど、機能フラグで有効になる新機能が使えなくなります（[公式ドキュメント](https://code.claude.com/docs/en/env-vars#features-that-need-feature-flag-fetching)）。機能フラグの取得先は許可済みの `api.anthropic.com` です。使用状況のテレメトリの一部は Datadog（`http-intake.logs.us5.datadoghq.com`）にも送られますが、許可リストにないのでプロキシで止まります。
 
 ### 許可ドメインの追加
 
