@@ -9,6 +9,7 @@ Claude Code のスキル（Agent Skills）を、ホスト環境から隔離さ�
 - さらに iptables のファイアウォールで、sandbox からはプロキシ以外（ホストや他のコンテナを含む）への通信をすべて拒否します
 - 制限が実際に効いているかは [`scripts/verify.sh`](scripts/verify.sh) で確認できます
 - Claude Code のほかに、Copilot CLI・Codex・Cursor CLI・Antigravity・OpenCode も入っています（[詳しく](#claude-code-以外の-ai-ツール)）
+- VS Code の Dev Containers でも開けます。中身は同じ構成で、通信制限もそのまま効きます（[詳しく](#vs-codedev-containersで開く)）
 
 ## 必要なもの
 
@@ -48,6 +49,36 @@ docker compose run --rm sandbox
 docker compose down        # コンテナを停止・削除（ログイン状態は残る）
 docker compose down -v     # ログイン状態や設定のボリュームも削除
 ```
+
+## VS Code（Dev Containers）で開く
+
+VS Code と [Dev Containers 拡張機能](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)があれば、このリポジトリのフォルダを開いて、コマンドパレットの **Dev Containers: Reopen in Container** でコンテナの中に入れます。
+
+- [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) は `compose.yaml` をそのまま使います。sandbox・firewall・proxy の 3 つが起動し、通信制限やコンテナの権限は `docker compose up` で起動したときと同じです。VS Code のウィンドウを閉じると 3 つとも止まります。
+- Compose のプロジェクトも同じなので、`docker compose exec proxy reload`、`docker compose logs proxy`、`./scripts/verify.sh` はホスト側からこれまでどおり使えます。
+- 開くフォルダは `/workspace`（ホストの `workspace/project`）です。スキルは `/home/claude/.claude/skills`（ホストの `workspace/skills`）にあるので、編集するときは **File: Add Folder to Workspace** で追加するか、ホスト側のエディタで開いてください。
+- Linux では、コンテナ内のユーザーの uid / gid を Dev Containers がホストのユーザーに合わせるので、`.env` の `USER_UID` / `USER_GID` を変えなくてもファイルの所有者はずれません。
+- devcontainer の features は使っていません。features は外部から取得したスクリプトを root で実行するためです。必要なツールは `Dockerfile` に追加してください。
+- VS Code Server 本体は、Dev Containers がホスト側でダウンロードしてコンテナに転送するので、許可リストへの追加は不要です（[公式 FAQ](https://code.visualstudio.com/docs/remote/faq#_what-are-the-connectivity-requirements-for-vs-code-server)）。拡張機能はコンテナの中からプロキシ経由でインストールするため、Marketplace（`marketplace.visualstudio.com`、`*.gallery.vsassets.io`、`*.gallerycdn.vsassets.io`）を許可しています。拡張機能を入れないなら、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) のその行をコメントアウトしてかまいません。
+- VS Code Server と拡張機能はコンテナ内のホームディレクトリに入るので、コンテナを作り直すと入れ直しになります。
+- VS Code Server が送ろうとするテレメトリなどは許可リストにないので、`docker compose logs proxy` に `TCP_DENIED` の行が出ることがあります。止まっても動作には影響しません。
+
+### Dev Containers で開くときの注意（ホストとのつながり）
+
+`docker compose exec` でシェルに入る場合と違って、VS Code はホストとコンテナの間に専用の通信路を作り、ホスト側の機能をコンテナから使えるようにします。外部への通信制限（プロキシの許可リスト）は変わりませんが、ホストから切り離す度合いは `docker compose exec` より弱くなります。
+
+- **認証情報**: 既定では、ホストの Git の認証情報・`~/.gitconfig`・Docker の認証情報・GitHub CLI のトークンがコンテナから使えるようになります。`github.com` は許可しているので、そのままだとコンテナ内のコードがホストのアカウントでリポジトリに書き込めてしまいます。`devcontainer.json` で次の設定をオフにしていますが、これらは VS Code のホスト側で読まれる設定で、拡張機能のバージョンによっては `devcontainer.json` からの指定が効かない可能性があります。確実にするため、ホストの VS Code のユーザー設定（`settings.json`）にも同じものを入れておくことをおすすめします。
+
+  ```jsonc
+  "dev.containers.copyGitConfig": false,
+  "dev.containers.gitCredentialHelperConfigLocation": "none",
+  "dev.containers.dockerCredentialHelper": false,
+  "dev.containers.githubCLILoginWithToken": false
+  ```
+
+- **SSH エージェント**: ホストで SSH エージェントが動いていると、Dev Containers は自動でコンテナに転送します（[公式ドキュメント](https://code.visualstudio.com/remote/advancedcontainers/sharing-git-credentials)）。プロキシは 443 番ポートの TLS しか通さないので、外部への SSH 接続には使えません。気になる場合は、Dev Containers で開く前にエージェントを止めるか、鍵を外しておいてください。
+- **その他**: コンテナ内の拡張機能やターミナルからホストのブラウザで URL を開く、コンテナのポートをホストに転送する、といった VS Code の機能も使えます。
+- 中身を確かめていないスキルや、信用できないコードを試すときは、VS Code ではなく `docker compose exec sandbox bash` で入るほうが安全です。
 
 ## ディレクトリ構成とマウント
 
@@ -159,7 +190,7 @@ docker compose exec firewall iptables -L -v -n
 
 ### 既定で許可しているドメイン
 
-[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものと、Artifact 用のものは次のとおりです。このほかに、イメージに入っている Claude Code 以外の AI ツールの接続先（と `github.com`）も許可しています（[Claude Code 以外の AI ツール](#claude-code-以外の-ai-ツール)）。
+[公式ドキュメントの Network access requirements](https://code.claude.com/docs/en/network-config#network-access-requirements) のうち、npm でインストールした Claude Code を使うのに必須のものと、Artifact 用のものは次のとおりです。このほかに、イメージに入っている Claude Code 以外の AI ツールの接続先（と `github.com`）と、VS Code の拡張機能の Marketplace も許可しています（[Claude Code 以外の AI ツール](#claude-code-以外の-ai-ツール)、[VS Code（Dev Containers）で開く](#vs-codedev-containersで開く)）。
 
 | ドメイン | 用途 |
 | --- | --- |
@@ -226,7 +257,7 @@ sandbox の中から実際に接続を試して、次の点を確認します。
 - root 以外のユーザーで動いていて、capabilities を持たず、`no-new-privileges` が有効
 - ファイアウォールの既定ポリシーが DROP で、許可ルールはプロキシ宛ての 1 つだけ
 
-同じスクリプトを GitHub Actions（[`.github/workflows/verify.yml`](.github/workflows/verify.yml)）でも実行しています。プルリクエストごとに、何も入っていない環境でイメージをビルドして起動し、制限が効いていることを確認します。
+同じスクリプトを GitHub Actions（[`.github/workflows/verify.yml`](.github/workflows/verify.yml)）でも実行しています。プルリクエストごとに、何も入っていない環境でイメージをビルドして起動し、制限が効いていることを確認します。Dev Containers と同じ手順（[Dev Containers CLI](https://github.com/devcontainers/cli) の `devcontainer up`）で起動した場合も同じスクリプトで確認し、あわせてコンテナ内の VS Code Server から拡張機能をインストールできることも確かめています。
 
 ### この方式の限界
 

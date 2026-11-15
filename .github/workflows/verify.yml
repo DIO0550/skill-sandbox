@@ -57,3 +57,47 @@ jobs:
           docker compose version
           docker compose ps -a
           docker compose logs --no-color --tail 200
+
+  # VS Code の Dev Containers と同じ手順（.devcontainer/devcontainer.json）で起動しても、
+  # 同じ制限が効いていることと、拡張機能をコンテナ内に入れられることを確認する
+  devcontainer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dev Containers CLI を入れる
+        run: npm install -g @devcontainers/cli@0.89.0
+
+      # .env は作らない（Dev Containers がコンテナ内ユーザーの uid / gid をホストに合わせる動作も確かめる）
+      - name: devcontainer.json で起動
+        run: devcontainer up --workspace-folder .
+
+      - name: 制限の確認
+        run: ./scripts/verify.sh
+
+      - name: uid / gid がホストのユーザーに合わせてある
+        run: |
+          inside=$(devcontainer exec --workspace-folder . id -u):$(devcontainer exec --workspace-folder . id -g)
+          echo "host=$(id -u):$(id -g) container=$inside"
+          test "$inside" = "$(id -u):$(id -g)"
+
+      # VS Code Server 本体は、Dev Containers と同じくホスト側で取得してコンテナに渡す。
+      # 拡張機能のインストールはコンテナ内からプロキシ経由で行う（許可リストの確認）
+      - name: VS Code Server で拡張機能を入れられる
+        run: |
+          curl -fsSL "https://update.code.visualstudio.com/latest/server-linux-x64/stable" -o "$RUNNER_TEMP/vscode-server.tar.gz"
+          docker compose exec -T sandbox bash -c '
+            set -e
+            mkdir -p ~/.vscode-server-ci
+            tar -xzf - -C ~/.vscode-server-ci --strip-components 1
+            ~/.vscode-server-ci/bin/code-server --version
+            ~/.vscode-server-ci/bin/code-server --install-extension editorconfig.editorconfig
+            ~/.vscode-server-ci/bin/code-server --list-extensions | grep -ix editorconfig.editorconfig
+          ' < "$RUNNER_TEMP/vscode-server.tar.gz"
+
+      - name: 状態とログ（調査用）
+        if: always()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail 200
