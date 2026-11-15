@@ -35,6 +35,18 @@ github.com
 #pypi.org
 #files.pythonhosted.org
 
+# --- VS Code（Dev Containers で開くとき） ---
+# 根拠: https://code.visualstudio.com/docs/remote/faq#_what-are-the-connectivity-requirements-for-vs-code-server
+# VS Code Server 本体はホスト側でダウンロードしてコンテナに転送されるので、ここでは不要。
+# コンテナ内への拡張機能のインストールに Marketplace とその CDN を使う。
+# 拡張機能を入れないなら、この 3 行はコメントアウトしてよい
+marketplace.visualstudio.com
+.gallery.vsassets.io
+.gallerycdn.vsassets.io
+# 一部の拡張機能は追加のファイル（言語サーバーなど）を次から取得する。必要なときだけ外す
+#download.visualstudio.microsoft.com
+#download.microsoft.com
+
 # --- Claude Code 以外の AI ツール（イメージに入っている CLI 用。使わないものはコメントアウトしてよい） ---
 # 公式ドキュメントや既知の情報をもとにした代表的な接続先。足りないときは
 # `docker compose logs proxy` の TCP_DENIED の行を見て追加する
