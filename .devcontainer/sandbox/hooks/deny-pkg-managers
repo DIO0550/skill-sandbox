@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""AI ツールのシェル実行前フックで、パッケージマネージャーの実行を止める。
+
+各 AI ツール（Claude Code、Copilot CLI、Codex、Cursor CLI、Antigravity CLI、OpenCode）の
+フックから呼ばれる。標準入力にツールごとの JSON が来るので、その中のシェルコマンドを取り出し、
+次のコマンドを実行しようとしていたら拒否する。
+
+  - Node.js: npm / npx / pnpm / pnpx / yarn / bun / bunx / corepack など
+  - Python:  pip / pip3 / pipx / uv / uvx / poetry / pdm / conda など、`python -m pip`、`python -m ensurepip`
+
+使い方:
+  deny-pkg-managers --format <claude|copilot|codex|cursor|agy|opencode>  < フックの入力 JSON
+  deny-pkg-managers --check '<コマンド>'      # 判定だけ（拒否なら終了コード 2）
+
+標準ライブラリだけで書いている（このスクリプト自身も外部のパッケージを使わない）。
+"""
+import json
+import os
+import re
+import shlex
+import sys
+
+REASON = (
+    "このサンドボックスでは、パッケージマネージャー（npm / npx / pnpm / yarn / bun / pip / uv など）"
+    "の実行と、標準ライブラリ以外のパッケージの導入を禁止しています。"
+    "標準ライブラリだけで実装してください。"
+)
+
+# コマンド名（パスを除いた名前）で止めるもの
+BLOCKED = {
+    # Node.js
+    "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg", "bun", "bunx", "corepack", "volta",
+    "npm-cli.js", "npx-cli.js", "pnpm.cjs", "pnpm.js", "pnpx.cjs", "yarn.js",
+    # Python
+    "pip", "pip3", "pipx", "uv", "uvx", "poetry", "pdm", "pipenv", "hatch", "rye",
+    "conda", "mamba", "micromamba", "easy_install",
+}
+BLOCKED_RE = re.compile(r"^(pip|pip3|easy_install)(\.\d+|-?\d+(\.\d+)*)?$")
+# `python -m <これ>` で止めるもの
+BLOCKED_PY_MODULES = {"pip", "ensurepip", "pipx", "uv", "poetry", "pdm", "pipenv", "conda"}
+PYTHON_RE = re.compile(r"^(python|python\d+(\.\d+)*|pypy\d*)$")
+NODE_RE = re.compile(r"^(node|nodejs)$")
+SHELLS = {"sh", "bash", "dash", "zsh", "ksh", "ash", "busybox"}
+# 後ろに実際のコマンドが続く「前置き」のコマンド
+WRAPPERS = {"sudo", "env", "exec", "command", "builtin", "nohup", "time", "nice", "ionice",
+            "stdbuf", "timeout", "xargs", "setsid", "chronic", "unbuffer", "watch", "flock", "su"}
+SEPARATORS = {";", ";;", "&", "&&", "|", "||", "|&", "(", ")", "{", "}", "!", "$", "`"}
+
+# shlex で分けられないとき（引用符の閉じ忘れなど）用。単語として現れたら止める
+FALLBACK_RE = re.compile(
+    r"(?<![\w.-])(" + "|".join(re.escape(x) for x in sorted(BLOCKED, key=len, reverse=True)) + r")(?![\w.-])"
+    r"|-m\s*(" + "|".join(sorted(BLOCKED_PY_MODULES)) + r")\b"
+)
+
+
+def tokenize(cmd):
+    cmd = cmd.replace("`", " ` ").replace("\n", " ; ").replace("\r", " ")
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|(){}")
+    lex.whitespace_split = True
+    lex.commenters = ""
+    return list(lex)
+
+
+def segments(tokens):
+    seg = []
+    for tok in tokens:
+        if tok in SEPARATORS or (tok and set(tok) <= set(";&|(){}")):
+            if seg:
+                yield seg
+            seg = []
+        elif tok.startswith("$(") or tok == "$":
+            if seg:
+                yield seg
+            seg = []
+        else:
+            seg.append(tok)
+    if seg:
+        yield seg
+
+
+def blocked_name(word):
+    name = os.path.basename(word)
+    return name in BLOCKED or bool(BLOCKED_RE.match(name))
+
+
+def check_segment(seg, depth):
+    i = 0
+    # 先頭の環境変数の代入（FOO=bar）と前置きのコマンドを飛ばす
+    while i < len(seg):
+        w = seg[i]
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w):
+            i += 1
+            continue
+        base = os.path.basename(w)
+        if base in WRAPPERS:
+            # 前置きコマンドのオプションの引数（sudo -u bob、env -u X、timeout -s KILL 10 など）は
+            # 見分けきれないので、後ろのどの位置から始まるコマンドとして見ても調べる
+            for k in range(i + 1, len(seg)):
+                found = check_segment(seg[k:], depth)
+                if found:
+                    return found
+            return None
+        break
+    if i >= len(seg):
+        return None
+    cmd, args = seg[i], seg[i + 1:]
+    base = os.path.basename(cmd)
+    if blocked_name(cmd):
+        return base
+    # python -m pip など
+    if PYTHON_RE.match(base):
+        for j, a in enumerate(args):
+            mod = None
+            if a == "-m" and j + 1 < len(args):
+                mod = args[j + 1]
+            elif a.startswith("-m") and len(a) > 2:
+                mod = a[2:]
+            if mod and mod.split(".")[0] in BLOCKED_PY_MODULES:
+                return f"{base} -m {mod}"
+            if mod or a == "-c" or not a.startswith("-"):
+                break
+    # node /path/to/npm-cli.js など
+    if NODE_RE.match(base):
+        for a in args:
+            if not a.startswith("-"):
+                if blocked_name(a):
+                    return os.path.basename(a)
+                break
+    # bash -c "npm i"、eval "npm i" は中身も調べる
+    if depth < 5:
+        if base in SHELLS:
+            for j, a in enumerate(args):
+                if re.match(r"^-[A-Za-z]*c[A-Za-z]*$", a) and j + 1 < len(args):
+                    found = check(args[j + 1], depth + 1)
+                    if found:
+                        return found
+                    break
+        if base == "eval" and args:
+            found = check(" ".join(args), depth + 1)
+            if found:
+                return found
+    return None
+
+
+def check(cmd, depth=0):
+    """拒否するなら見つかったコマンド名を、問題なければ None を返す。"""
+    if not cmd or not cmd.strip():
+        return None
+    try:
+        tokens = tokenize(cmd)
+    except ValueError:
+        m = FALLBACK_RE.search(cmd)
+        return m.group(0) if m else None
+    for seg in segments(tokens):
+        found = check_segment(seg, depth)
+        if found:
+            return found
+    return None
+
+
+# 入力 JSON の中でシェルコマンドが入っているところ（ツールによって違う）
+COMMAND_KEYS = ("command", "cmd", "CommandLine", "commandLine", "command_line", "script")
+
+
+def find_command(data):
+    """フックの入力からシェルコマンドの文字列を探す。見つからなければ None。"""
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            return None
+    if not isinstance(data, dict):
+        return None
+    for key in COMMAND_KEYS:
+        v = data.get(key)
+        if isinstance(v, str):
+            return v
+        if isinstance(v, list) and all(isinstance(x, str) for x in v):
+            return shlex.join(v)
+    for key in ("tool_input", "toolInput", "toolArgs", "tool_args", "toolCall", "tool_call",
+                "input", "args", "arguments", "parameters", "params"):
+        if key in data:
+            found = find_command(data[key])
+            if found is not None:
+                return found
+    return None
+
+
+def main(argv):
+    if len(argv) >= 3 and argv[1] == "--check":
+        found = check(argv[2])
+        if found:
+            print(f"blocked: {found}", file=sys.stderr)
+            return 2
+        return 0
+
+    fmt = argv[2] if len(argv) >= 3 and argv[1] == "--format" else "claude"
+    raw = sys.stdin.read()
+    try:
+        data = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        data = {}
+    cmd = find_command(data)
+    found = check(cmd) if cmd else None
+
+    if not found:
+        if fmt == "cursor":
+            print(json.dumps({"permission": "allow"}))
+        elif fmt == "agy":
+            print(json.dumps({"decision": "allow"}))
+        return 0
+
+    reason = f"{REASON}（検出: {found}）"
+    # 各ツールの公式ドキュメントにある拒否の返し方。どのツールでも理由は標準エラーにも出す
+    print(reason, file=sys.stderr)
+    if fmt in ("claude", "codex"):
+        # 終了コード 2 で拒否。標準エラーが理由としてモデルに渡る
+        return 2
+    if fmt == "copilot":
+        # permissionDecision: deny。0 以外の終了コードも拒否として扱われる
+        print(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason}, ensure_ascii=False))
+        return 2
+    if fmt == "cursor":
+        # 終了コード 2 は permission: deny と同じ
+        print(json.dumps({"permission": "deny", "user_message": reason, "agent_message": reason}, ensure_ascii=False))
+        return 2
+    if fmt == "agy":
+        # decision: deny を標準出力の JSON で返す（終了コードの扱いは文書化されていないので 0）
+        print(json.dumps({"decision": "deny", "reason": reason}, ensure_ascii=False))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
