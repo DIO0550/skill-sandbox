@@ -226,7 +226,7 @@ const show = (r) => JSON.stringify(r);
     let text = '';
     try { text = fs.readFileSync(file, 'utf8'); } catch {}
     const st = (() => { try { return fs.statSync(file); } catch { return null; } })();
-    if (!text.includes(HOOK)) ng(`${tool} のフック設定がない`, file);
+    if (!text.includes('deny-pkg-managers')) ng(`${tool} のフック設定がない`, file);
     else if (!st || st.uid !== 0 || (st.mode & 0o022)) ng(`${tool} のフック設定が root 所有・書き込み禁止になっていない`, file);
     else if (file.startsWith('/etc/') && writable(file)) ng(`${tool} のフック設定を書き換えられる`, file);
     else ok(`${tool} のフック設定がある（${file}）`);
@@ -272,11 +272,12 @@ const show = (r) => JSON.stringify(r);
 
   // --- Python は標準ライブラリだけ ---
   const py = spawnSync('python3', ['-c',
-    'import importlib.metadata as m, importlib.util as u; d = sorted({x.metadata["Name"] for x in m.distributions()}); print(",".join(d)); print(bool(u.find_spec("pip")))'],
+    'import json, importlib.metadata as m, importlib.util as u; print(json.dumps({"dists": sorted({x.metadata["Name"] for x in m.distributions()}), "pip": u.find_spec("pip") is not None}))'],
     { encoding: 'utf8' });
-  const [dists = '', hasPip = ''] = (py.stdout || '').trim().split('\n');
-  if (py.status === 0 && dists === '' && hasPip === 'False') ok('Python には標準ライブラリ以外のパッケージも pip も入っていない');
-  else ng('Python に標準ライブラリ以外のパッケージか pip が入っている', `${dists} pip=${hasPip}`);
+  let pyInfo = null;
+  try { pyInfo = JSON.parse(py.stdout); } catch {}
+  if (pyInfo && pyInfo.dists.length === 0 && !pyInfo.pip) ok('Python には標準ライブラリ以外のパッケージも pip も入っていない');
+  else ng('Python に標準ライブラリ以外のパッケージか pip が入っている', pyInfo ? `${pyInfo.dists.join(',')} pip=${pyInfo.pip}` : (py.stderr || '').split('\n')[0]);
 
   // --- Claude Code 以外の AI ツール（Claude Code と同じ gist で入れたもの） ---
   for (const cmd of ['copilot', 'codex', 'cursor-agent', 'agent', 'agy', 'opencode']) {
