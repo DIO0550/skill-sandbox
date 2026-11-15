@@ -2,7 +2,7 @@
 #
 # - "example.com"  は example.com だけに一致
 # - ".example.com" は example.com とそのサブドメインすべてに一致
-# - 変更後は `docker compose exec proxy reload` で反映（コンテナの再起動は不要）
+# - 変更後は .devcontainer で `docker compose exec proxy reload` を実行して反映（コンテナの再起動は不要）
 #
 # 根拠: https://code.claude.com/docs/en/network-config#network-access-requirements
 
@@ -18,10 +18,12 @@ platform.claude.com
 
 # --- 必要に応じてコメントを外す ---
 # ネイティブインストーラー / `claude update` / 実行ファイルを含むプラグインのダウンロード。
-# このイメージは npm でインストールし、更新はイメージの再ビルドで行うため既定では不要
+# このイメージは gist（ネイティブインストーラー）でビルド時に入れ、更新はイメージの再ビルドで行うため既定では不要
 #downloads.claude.ai
-# プラグインのインストール、npx で起動する MCP サーバー
+# プラグインのインストール、npx で起動する MCP サーバー、コンテナ内での pnpm / npm によるインストール。
+# pnpm / npm は safe-chain を通るので、マルウェア一覧の取得先（malware-list.aikido.dev）も合わせて許可する
 #registry.npmjs.org
+#malware-list.aikido.dev
 # GitHub 上のプラグインマーケットプレイス、git clone。Copilot CLI のログインにも使う
 github.com
 #codeload.github.com

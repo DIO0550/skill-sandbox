@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # 起動中のサンドボックスに対して、制限が実際に効いているかを確認するスクリプト。
 #
-#   docker compose up -d --build
+#   cd .devcontainer && docker compose up -d --build && cd ..
 #   ./scripts/verify.sh
 #
 # すべて OK なら終了コード 0、1 つでも NG があれば 1 を返す。
 set -uo pipefail
-cd "$(dirname "$0")/.."
+# docker compose は compose.yaml のある .devcontainer で実行する
+cd "$(dirname "$0")/../.devcontainer"
 
 fail=0
 ok() { echo "OK  $*"; }
@@ -165,13 +166,37 @@ const show = (r) => JSON.stringify(r);
   // --- Claude Code ---
   try { ok('claude コマンドが使える（' + execFileSync('claude', ['--version'], { encoding: 'utf8' }).trim() + '）'); }
   catch (e) { ng('claude コマンドが実行できない', e.message.split('\n')[0]); }
-  // ログインシェルでも npm 版（root 所有）の claude が使われ、sandbox のユーザーが書き換えられない
+  // ログインシェルでも gist で入れたネイティブ版（/opt/ai-tools、root 所有）の claude が使われ、
+  // sandbox のユーザーが書き換えられない。npm 版の Claude Code は入っていない
   try {
     const claudePath = fs.realpathSync(execFileSync('bash', ['-lc', 'command -v claude'], { encoding: 'utf8' }).trim());
-    if (/^\/(opt\/ai-tools|home|root)\//.test(claudePath)) ng('claude が npm 版ではない', claudePath);
+    if (!claudePath.startsWith('/opt/ai-tools/.local/share/claude/')) ng('claude が gist で入れたネイティブ版ではない', claudePath);
     else if (writable(claudePath)) ng('claude を sandbox のユーザーが書き換えられる', claudePath);
-    else ok('claude は npm 版で、書き換えられない');
+    else ok('claude は gist で入れたネイティブ版で、書き換えられない');
   } catch (e) { ng('claude の場所を確認できない', e.message.split('\n')[0]); }
+  const npmClaude = ['/usr/local/lib/node_modules/@anthropic-ai/claude-code', `${os.homedir()}/.npm-global/lib/node_modules/@anthropic-ai/claude-code`]
+    .filter((p) => fs.existsSync(p));
+  if (npmClaude.length === 0) ok('npm 版の Claude Code は入っていない');
+  else ng('npm 版の Claude Code が入っている', npmClaude.join(','));
+
+  // --- サプライチェーン対策（pnpm-safe-chain-setup.sh の gist、spec-viewer と同じ） ---
+  // sandbox のユーザーのシェル（ログイン + 対話）で確認する
+  const userShell = (cmd) => execFileSync('bash', ['-lic', cmd], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 60000 }).trim();
+  try {
+    const age = userShell('pnpm config get minimumReleaseAge').split('\n').pop();
+    if (age === '7200') ok('pnpm の minimumReleaseAge が 7200（公開から 5 日未満のパッケージは入れない）');
+    else ng('pnpm の minimumReleaseAge が 7200 ではない', age);
+  } catch (e) { ng('pnpm が使えない', (e.message || '').split('\n')[0]); }
+  try {
+    const ign = userShell('npm config get ignore-scripts').split('\n').pop();
+    if (ign === 'true') ok('npm の ignore-scripts が有効');
+    else ng('npm の ignore-scripts が有効になっていない', ign);
+  } catch (e) { ng('npm の設定を確認できない', (e.message || '').split('\n')[0]); }
+  try {
+    const out = userShell('pnpm safe-chain-verify 2>&1');
+    if (out.includes('OK: Safe-chain works!')) ok('safe-chain が有効');
+    else ng('safe-chain が有効になっていない', out.split('\n').pop());
+  } catch (e) { ng('safe-chain が有効になっていない', (e.message || '').split('\n')[0]); }
 
   // 機能フラグの取得を止める環境変数が設定されていない（設定すると Remote Control などの新機能が使えない）
   const flagKillers = ['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'DISABLE_TELEMETRY', 'DO_NOT_TRACK',
@@ -179,7 +204,7 @@ const show = (r) => JSON.stringify(r);
   if (flagKillers.length === 0) ok('機能フラグの取得を止める環境変数は設定されていない');
   else ng('機能フラグの取得を止める環境変数が設定されている（新機能が使えない）', flagKillers.join(','));
 
-  // --- Claude Code 以外の AI ツール（gist で入れたもの） ---
+  // --- Claude Code 以外の AI ツール（Claude Code と同じ gist で入れたもの） ---
   for (const cmd of ['copilot', 'codex', 'cursor-agent', 'agent', 'agy', 'opencode']) {
     try {
       const target = fs.realpathSync(execFileSync('bash', ['-lc', `command -v ${cmd}`], { encoding: 'utf8' }).trim());

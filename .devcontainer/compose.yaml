@@ -1,9 +1,12 @@
+# このファイルと .env はこのフォルダ（.devcontainer）に置く。docker compose はこのフォルダで実行する。
+# プロジェクト名を固定して、Dev Containers から起動しても docker compose から操作できるようにする
+name: skill-sandbox
+
 services:
   sandbox:
     build:
-      context: .
+      context: ./sandbox
       args:
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
     image: skill-sandbox:latest
@@ -52,8 +55,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       # Only these two host folders are visible inside the container.
-      - ./workspace/skills:/home/claude/.claude/skills
-      - ./workspace/project:/workspace
+      - ../workspace/skills:/home/claude/.claude/skills
+      - ../workspace/project:/workspace
       # Login state and settings persist here, isolated from the host's ~/.claude.
       - claude-config:/home/claude/.claude
     # Hardening: no Linux capabilities, no privilege escalation, bounded resources.
