@@ -4,7 +4,7 @@
 // 詳しくは README の「VS Code（Dev Containers）で開く」を参照。
 {
   "name": "skill-sandbox",
-  "dockerComposeFile": ["../compose.yaml"],
+  "dockerComposeFile": ["../compose.yaml", "compose.devcontainer.yaml"],
   "service": "sandbox",
   // firewall と proxy がないと sandbox は起動しない（depends_on）。明示しておく
   "runServices": ["sandbox", "firewall", "proxy"],
@@ -12,6 +12,15 @@
   "shutdownAction": "stopCompose",
   "workspaceFolder": "/workspace",
   "remoteUser": "claude",
+
+  // イメージはホスト側で docker compose のビルドとして作る（`.env` の設定もそのまま使われる）。
+  // Dev Containers 自身にビルドさせない理由は compose.devcontainer.yaml を参照
+  "initializeCommand": ["docker", "compose", "build"],
+
+  // コンテナ内ユーザーの uid をホストに合わせ直す機能は使わない。
+  // ホストのユーザーが root だと uid 0 に書き換えてしまい、非 root で動かす制限が外れるため。
+  // uid / gid は `.env` の USER_UID / USER_GID で合わせる（docker compose と同じ）
+  "updateRemoteUserUID": false,
 
   // features は使わない（外部から取得したスクリプトを root で実行することになるため）。
   // 必要なものは Dockerfile で入れる。

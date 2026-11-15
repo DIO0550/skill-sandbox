@@ -69,14 +69,19 @@ jobs:
       - name: Dev Containers CLI を入れる
         run: npm install -g @devcontainers/cli@0.89.0
 
-      # .env は作らない（Dev Containers がコンテナ内ユーザーの uid / gid をホストに合わせる動作も確かめる）
+      - name: .env を用意する（ランナーの uid / gid に合わせる）
+        run: |
+          cp .env.example .env
+          sed -i "s/^USER_UID=.*/USER_UID=$(id -u)/; s/^USER_GID=.*/USER_GID=$(id -g)/" .env
+
+      # initializeCommand（docker compose build）でイメージを作ってから起動する
       - name: devcontainer.json で起動
         run: devcontainer up --workspace-folder .
 
       - name: 制限の確認
         run: ./scripts/verify.sh
 
-      - name: uid / gid がホストのユーザーに合わせてある
+      - name: コンテナ内のユーザーが .env の uid / gid で動いている
         run: |
           inside=$(devcontainer exec --workspace-folder . id -u):$(devcontainer exec --workspace-folder . id -g)
           echo "host=$(id -u):$(id -g) container=$inside"

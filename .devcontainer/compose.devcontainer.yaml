@@ -1,0 +1,14 @@
+# devcontainer.json からだけ使う compose.yaml への上書き。
+#
+# Dev Containers は build: のあるサービスを、自分で生成した Dockerfile（一時ディレクトリに置く）で
+# ビルドし直そうとする。Buildx 0.37.2 以降ではビルドのコンテキスト外のファイルを読む権限
+# （fs.read）が必要になり、このビルドが失敗する:
+#   https://github.com/microsoft/vscode-remote-release/issues/11896
+#   https://github.com/devcontainers/cli/issues/1320
+# そこで sandbox のイメージは devcontainer.json の initializeCommand（ホスト側の
+# `docker compose build`）で先に作っておき、Dev Containers にはビルドさせない。
+services:
+  sandbox:
+    build: !reset null
+    # イメージがなければレジストリから取ってこずにエラーにする
+    pull_policy: never

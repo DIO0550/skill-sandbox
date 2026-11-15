@@ -55,9 +55,11 @@ docker compose down -v     # ログイン状態や設定のボリュームも削
 VS Code と [Dev Containers 拡張機能](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)があれば、このリポジトリのフォルダを開いて、コマンドパレットの **Dev Containers: Reopen in Container** でコンテナの中に入れます。
 
 - [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) は `compose.yaml` をそのまま使います。sandbox・firewall・proxy の 3 つが起動し、通信制限やコンテナの権限は `docker compose up` で起動したときと同じです。VS Code のウィンドウを閉じると 3 つとも止まります。
+- Docker Compose v2.24 以降が必要です（上書き用の [`.devcontainer/compose.devcontainer.yaml`](.devcontainer/compose.devcontainer.yaml) で `!reset` を使うため）。
+- イメージは、開くときにホスト側で `docker compose build` を実行して作ります（`initializeCommand`）。Dev Containers 自身にビルドさせると、Buildx 0.37.2 以降で `additional privileges requested: pass "--allow=fs.read=..."` というエラーになるためです（[既知の不具合](https://github.com/microsoft/vscode-remote-release/issues/11896)）。Claude Code などを最新版に上げるときは、これまでどおりホスト側で `docker compose build --no-cache sandbox` を実行してから **Dev Containers: Rebuild Container** を実行します。
 - Compose のプロジェクトも同じなので、`docker compose exec proxy reload`、`docker compose logs proxy`、`./scripts/verify.sh` はホスト側からこれまでどおり使えます。
 - 開くフォルダは `/workspace`（ホストの `workspace/project`）です。スキルは `/home/claude/.claude/skills`（ホストの `workspace/skills`）にあるので、編集するときは **File: Add Folder to Workspace** で追加するか、ホスト側のエディタで開いてください。
-- Linux では、コンテナ内のユーザーの uid / gid を Dev Containers がホストのユーザーに合わせるので、`.env` の `USER_UID` / `USER_GID` を変えなくてもファイルの所有者はずれません。
+- Linux では、`docker compose` で使う場合と同じく `.env` の `USER_UID` / `USER_GID` をホストのユーザーに合わせてください。Dev Containers の uid を自動で合わせる機能（`updateRemoteUserUID`）は切っています。ホストのユーザーが root だとコンテナ内のユーザーを uid 0 に書き換えてしまい、非 root で動かす制限が外れるためです。
 - devcontainer の features は使っていません。features は外部から取得したスクリプトを root で実行するためです。必要なツールは `Dockerfile` に追加してください。
 - VS Code Server 本体は、Dev Containers がホスト側でダウンロードしてコンテナに転送するので、許可リストへの追加は不要です（[公式 FAQ](https://code.visualstudio.com/docs/remote/faq#_what-are-the-connectivity-requirements-for-vs-code-server)）。拡張機能はコンテナの中からプロキシ経由でインストールするため、Marketplace（`marketplace.visualstudio.com`、`*.gallery.vsassets.io`、`*.gallerycdn.vsassets.io`）を許可しています。拡張機能を入れないなら、[`proxy/allowed-domains.txt`](proxy/allowed-domains.txt) のその行をコメントアウトしてかまいません。
 - VS Code Server と拡張機能はコンテナ内のホームディレクトリに入るので、コンテナを作り直すと入れ直しになります。
