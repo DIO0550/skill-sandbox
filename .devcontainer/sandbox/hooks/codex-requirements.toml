@@ -1,0 +1,14 @@
+# Codex の管理者向け設定（/etc/codex/requirements.toml）。ユーザーの設定では外せない。
+# シェルの実行前（PreToolUse、ツール名 Bash）にパッケージマネージャーの実行を止める。
+
+# フックをユーザー側でオフにできないようにする
+[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/usr/local/bin/deny-pkg-managers --format codex"
+timeout = 30

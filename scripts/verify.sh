@@ -40,7 +40,7 @@ echo "== sandbox コンテナ内からの確認 =="
 # 以降は sandbox コンテナの中で Node.js のスクリプトとして実行する
 docker compose exec -T sandbox node - <<'NODE' || fail=1
 const http = require('http'), net = require('net'), tls = require('tls'), dns = require('dns'), os = require('os'), fs = require('fs');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 let failed = false;
 const ok = (m) => console.log('OK  ' + m);
@@ -112,6 +112,10 @@ const show = (r) => JSON.stringify(r);
     ['許可していないサブドメイン evil.api.anthropic.com', 'evil.api.anthropic.com', 443],
     ['IP アドレス直接指定 1.1.1.1', '1.1.1.1', 443],
     ['許可ドメインの 443 以外のポート api.anthropic.com:22', 'api.anthropic.com', 22],
+    // パッケージのレジストリ（標準ライブラリ以外のパッケージは入れられない）
+    ['npm のレジストリ registry.npmjs.org', 'registry.npmjs.org', 443],
+    ['PyPI（pypi.org）', 'pypi.org', 443],
+    ['PyPI のファイル置き場 files.pythonhosted.org', 'files.pythonhosted.org', 443],
   ]) {
     r = await viaProxy(host, port);
     if (blocked(r)) ok(`${desc} はプロキシが拒否する`);
@@ -203,6 +207,77 @@ const show = (r) => JSON.stringify(r);
     'CLAUDE_CODE_DISABLE_FEATURE_FLAGS', 'DISABLE_GROWTHBOOK'].filter((k) => process.env[k]);
   if (flagKillers.length === 0) ok('機能フラグの取得を止める環境変数は設定されていない');
   else ng('機能フラグの取得を止める環境変数が設定されている（新機能が使えない）', flagKillers.join(','));
+
+  // --- AI ツールのフックでパッケージマネージャーを禁止している ---
+  const HOOK = '/usr/local/bin/deny-pkg-managers';
+  const rootOwned = (p) => { try { return fs.statSync(p).uid === 0 && !writable(p); } catch { return false; } };
+  if (rootOwned(fs.realpathSync(HOOK))) ok('禁止判定のスクリプトは root 所有で、書き換えられない');
+  else ng('禁止判定のスクリプトがないか、書き換えられる', HOOK);
+  // 各ツールの設定ファイル（システム全体の設定。Antigravity だけはユーザーの設定にしか置けない）
+  for (const [tool, file] of [
+    ['Claude Code', '/etc/claude-code/managed-settings.json'],
+    ['Copilot CLI', '/etc/github-copilot/policy.d/deny-pkg-managers.json'],
+    ['Codex', '/etc/codex/requirements.toml'],
+    ['Cursor CLI', '/etc/cursor/hooks.json'],
+    ['OpenCode', '/etc/opencode/opencode.json'],
+    ['OpenCode', '/etc/opencode/plugins/deny-pkg-managers.js'],
+    ['Antigravity CLI', `${os.homedir()}/.gemini/config/hooks.json`],
+  ]) {
+    let text = '';
+    try { text = fs.readFileSync(file, 'utf8'); } catch {}
+    const st = (() => { try { return fs.statSync(file); } catch { return null; } })();
+    if (!text.includes('deny-pkg-managers')) ng(`${tool} のフック設定がない`, file);
+    else if (!st || st.uid !== 0 || (st.mode & 0o022)) ng(`${tool} のフック設定が root 所有・書き込み禁止になっていない`, file);
+    else if (file.startsWith('/etc/') && writable(file)) ng(`${tool} のフック設定を書き換えられる`, file);
+    else ok(`${tool} のフック設定がある（${file}）`);
+  }
+  // 各ツールの形式の入力で、禁止するコマンドは止まり、ほかは通る
+  const runHook = (fmt, input) => spawnSync(HOOK, ['--format', fmt], { input: JSON.stringify(input), encoding: 'utf8' });
+  const denied = (fmt, r) => {
+    if (fmt === 'agy') return r.status === 0 && JSON.parse(r.stdout || '{}').decision === 'deny';
+    return r.status === 2;
+  };
+  const allowed = (fmt, r) => {
+    if (r.status !== 0) return false;
+    if (fmt === 'agy') return JSON.parse(r.stdout || '{}').decision === 'allow';
+    if (fmt === 'cursor') return JSON.parse(r.stdout || '{}').permission === 'allow';
+    return true;
+  };
+  const inputs = {
+    claude: (c) => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } }),
+    codex: (c) => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: c } }),
+    copilot: (c) => ({ toolName: 'bash', toolArgs: JSON.stringify({ command: c }) }),
+    cursor: (c) => ({ command: c, cwd: '/workspace' }),
+    agy: (c) => ({ toolCall: { name: 'run_command', args: { CommandLine: c, Cwd: '/workspace' } } }),
+  };
+  const deniedCmds = ['npm install lodash', 'npx create-vite app', 'pnpm exec vitest', 'pnpm dlx cowsay', 'cd app && yarn add x',
+    'bunx foo', 'pip install requests', 'python3 -m pip install requests', 'uv pip install x', "bash -c 'npm i'"];
+  const allowedCmds = ['ls -la', 'python3 script.py', 'node app.js', 'grep -r npm .'];
+  for (const [fmt, make] of Object.entries(inputs)) {
+    const missed = deniedCmds.filter((c) => { try { return !denied(fmt, runHook(fmt, make(c))); } catch { return true; } });
+    const wrong = allowedCmds.filter((c) => { try { return !allowed(fmt, runHook(fmt, make(c))); } catch { return true; } });
+    if (!missed.length && !wrong.length) ok(`${fmt} 形式のフック: npm / npx / pnpm / yarn / bun / pip / uv を止め、ほかのコマンドは通す`);
+    else ng(`${fmt} 形式のフックの判定が違う`, [...missed.map((c) => '通った: ' + c), ...wrong.map((c) => '止まった: ' + c)].join(' / '));
+  }
+  // OpenCode のプラグインは例外で止める
+  try {
+    const plugin = await import('/etc/opencode/plugins/deny-pkg-managers.js');
+    const hooks = await Object.values(plugin)[0]();
+    let blockedNpm = false;
+    try { await hooks['tool.execute.before']({ tool: 'bash' }, { args: { command: 'npm install lodash' } }); } catch { blockedNpm = true; }
+    await hooks['tool.execute.before']({ tool: 'bash' }, { args: { command: 'ls -la' } });
+    if (blockedNpm) ok('OpenCode のプラグイン: npm を止め、ほかのコマンドは通す');
+    else ng('OpenCode のプラグインが npm を止めない');
+  } catch (e) { ng('OpenCode のプラグインを確認できない', (e.message || '').split('\n')[0]); }
+
+  // --- Python は標準ライブラリだけ ---
+  const py = spawnSync('python3', ['-c',
+    'import json, importlib.metadata as m, importlib.util as u; print(json.dumps({"dists": sorted({x.metadata["Name"] for x in m.distributions()}), "pip": u.find_spec("pip") is not None}))'],
+    { encoding: 'utf8' });
+  let pyInfo = null;
+  try { pyInfo = JSON.parse(py.stdout); } catch {}
+  if (pyInfo && pyInfo.dists.length === 0 && !pyInfo.pip) ok('Python には標準ライブラリ以外のパッケージも pip も入っていない');
+  else ng('Python に標準ライブラリ以外のパッケージか pip が入っている', pyInfo ? `${pyInfo.dists.join(',')} pip=${pyInfo.pip}` : (py.stderr || '').split('\n')[0]);
 
   // --- Claude Code 以外の AI ツール（Claude Code と同じ gist で入れたもの） ---
   for (const cmd of ['copilot', 'codex', 'cursor-agent', 'agent', 'agy', 'opencode']) {

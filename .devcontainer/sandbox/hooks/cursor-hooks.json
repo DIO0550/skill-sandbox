@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      { "command": "/usr/local/bin/deny-pkg-managers --format cursor", "timeout": 30, "failClosed": true }
+    ]
+  }
+}
