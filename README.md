@@ -173,6 +173,24 @@ Claude Code と、いろいろなエージェントでスキルや作業を試�
 - 更新は Claude Code と同じくイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。gist とインストーラーは毎回その時点の最新版を取得します。
 - 各ツールが使えて、書き換えられないこと、npm 版の Claude Code が入っていないことは [`scripts/verify.sh`](scripts/verify.sh) でも確認します。
 
+### gh（GitHub CLI）
+
+`gh` も spec-viewer と同じ gist（[`install-gh-local.sh`](https://gist.github.com/DIO0550/f5999a0512a369a232b7d4f824f0cc08)）を、編集せずにビルド時に取得して実行しています。AI ツールと同じく root 権限・`HOME=/opt/ai-tools` で入れて `/usr/local/bin/gh` にリンクするので、sandbox のユーザーは書き換えられません。
+
+- 入るのはビルド時点の最新リリースです。更新はイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。
+- gist は `linux_amd64` 版を取得します。Apple Silicon の Mac などで arm64 のイメージをビルドすると `gh` は動きません。
+- 接続先の `github.com` と `api.github.com` は既定で許可しているので、追加の設定はいりません（[`allowed-domains.txt`](.devcontainer/proxy/allowed-domains.txt) で Copilot CLI の行を閉じるときも、gh を使うならこの 2 つは残してください）。
+
+#### ログインとトークンの扱い
+
+コンテナ内の AI ツールも、同じ認証情報で `gh` を実行できます（リポジトリへの push、PR やイシューの作成・削除なども含みます）。**渡すトークンは、試すのに必要なリポジトリと権限だけに絞ってください。**
+
+- おすすめは [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) です。「Repository access」で対象のリポジトリだけを選び、権限は必要なものだけ（読むだけなら Contents と Metadata の Read-only、PR を作るなら Pull requests の Read and write を足す）にして、有効期限も短めにします。
+- トークンは `.devcontainer/.env` の `GH_TOKEN` に書くと、コンテナ内で `gh` がそのまま使います（`.env` は Git に含めません）。変えたら `docker compose up -d` でコンテナを作り直してください。
+- `GH_TOKEN` を空にしておけば、コンテナ内で `gh auth login` を実行して対話でログインすることもできます（「Login with a web browser」を選び、表示された URL をホストのブラウザで開きます）。この場合のトークンはコンテナ内の `~/.config/gh` に保存され、コンテナを作り直すと消えます。対話ログインで発行されるトークンは、そのアカウントが触れるすべてのリポジトリに及ぶので、権限を絞りたいときは `GH_TOKEN` を使ってください。
+- spec-viewer と違い、ホストの `~/.config/gh` はマウントしていません。ホストのログイン情報をコンテナに持ち込まないためです（Dev Containers の `dev.containers.githubCLILoginWithToken` も無効にしています）。
+- HTTPS で `git push` するときに `gh` の認証情報を使うには、コンテナ内で `gh auth setup-git` を実行します。
+
 ### pnpm / npm のサプライチェーン対策
 
 sandbox のユーザー（`claude`）のシェルにも、spec-viewer と同じく [`pnpm-safe-chain-setup.sh`](https://gist.github.com/DIO0550/dcc09dc9d2dcefceb9b0cda183e7ef8e) を適用しています。コンテナ内でスキルやツールを試すときにパッケージを入れる場合も、次の設定が効きます。
@@ -182,24 +200,6 @@ sandbox のユーザー（`claude`）のシェルにも、spec-viewer と同じ�
 - [safe-chain](https://github.com/AikidoSec/safe-chain) が npm / pnpm / npx などを包み、既知のマルウェアを含むパッケージのインストールを止める
 
 既定ではパッケージのレジストリを許可していないので、コンテナ内でパッケージを入れるには [`.devcontainer/proxy/allowed-domains.txt`](.devcontainer/proxy/allowed-domains.txt) の `registry.npmjs.org` と、safe-chain がマルウェア一覧を取得する `malware-list.aikido.dev` のコメントを外してください。これらの設定が効いていることは [`scripts/verify.sh`](scripts/verify.sh) で確認します。
-
-## gh（GitHub CLI）
-
-`gh` も spec-viewer と同じ gist（[`install-gh-local.sh`](https://gist.github.com/DIO0550/f5999a0512a369a232b7d4f824f0cc08)）を、編集せずにビルド時に取得して実行しています。AI ツールと同じく root 権限・`HOME=/opt/ai-tools` で入れて `/usr/local/bin/gh` にリンクするので、sandbox のユーザーは書き換えられません。
-
-- 入るのはビルド時点の最新リリースです。更新はイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。
-- gist は `linux_amd64` 版を取得します。Apple Silicon の Mac などで arm64 のイメージをビルドすると `gh` は動きません。
-- 接続先の `github.com` と `api.github.com` は既定で許可しているので、追加の設定はいりません（[`allowed-domains.txt`](.devcontainer/proxy/allowed-domains.txt) で Copilot CLI の行を閉じるときも、gh を使うならこの 2 つは残してください）。
-
-### ログインとトークンの扱い
-
-コンテナ内の AI ツールも、同じ認証情報で `gh` を実行できます（リポジトリへの push、PR やイシューの作成・削除なども含みます）。**渡すトークンは、試すのに必要なリポジトリと権限だけに絞ってください。**
-
-- おすすめは [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) です。「Repository access」で対象のリポジトリだけを選び、権限は必要なものだけ（読むだけなら Contents と Metadata の Read-only、PR を作るなら Pull requests の Read and write を足す）にして、有効期限も短めにします。
-- トークンは `.devcontainer/.env` の `GH_TOKEN` に書くと、コンテナ内で `gh` がそのまま使います（`.env` は Git に含めません）。変えたら `docker compose up -d` でコンテナを作り直してください。
-- `GH_TOKEN` を空にしておけば、コンテナ内で `gh auth login` を実行して対話でログインすることもできます（「Login with a web browser」を選び、表示された URL をホストのブラウザで開きます）。この場合のトークンはコンテナ内の `~/.config/gh` に保存され、コンテナを作り直すと消えます。対話ログインで発行されるトークンは、そのアカウントが触れるすべてのリポジトリに及ぶので、権限を絞りたいときは `GH_TOKEN` を使ってください。
-- spec-viewer と違い、ホストの `~/.config/gh` はマウントしていません。ホストのログイン情報をコンテナに持ち込まないためです（Dev Containers の `dev.containers.githubCLILoginWithToken` も無効にしています）。
-- HTTPS で `git push` するときに `gh` の認証情報を使うには、コンテナ内で `gh auth setup-git` を実行します。
 
 ## ネットワーク制限（ファイアウォール＋許可リスト型プロキシ）
 
