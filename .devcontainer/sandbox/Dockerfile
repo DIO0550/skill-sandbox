@@ -36,6 +36,17 @@ RUN --mount=type=bind,source=link-ai-tools.sh,target=/tmp/link-ai-tools.sh \
  && bash /tmp/link-ai-tools.sh \
  && rm -rf /tmp/gists /root/.npm
 
+# Hooks that stop every AI CLI from running package managers (npm / npx / pnpm / yarn / bun /
+# pip / uv ...): one checker script, wired into each tool's system-wide (root-owned) config so the
+# sandbox user cannot remove them. See hooks/ and the README.
+COPY --chmod=0755 hooks/deny-pkg-managers /usr/local/bin/deny-pkg-managers
+COPY --chmod=0644 hooks/claude-managed-settings.json /etc/claude-code/managed-settings.json
+COPY --chmod=0644 hooks/copilot-policy.json /etc/github-copilot/policy.d/deny-pkg-managers.json
+COPY --chmod=0644 hooks/codex-requirements.toml /etc/codex/requirements.toml
+COPY --chmod=0644 hooks/cursor-hooks.json /etc/cursor/hooks.json
+COPY --chmod=0644 hooks/opencode.json /etc/opencode/opencode.json
+COPY --chmod=0644 hooks/opencode-plugin.js /etc/opencode/plugins/deny-pkg-managers.js
+
 # Reuse the base image's uid/gid 1000 "node" account, renamed and re-numbered
 # to match the host user so bind-mounted files keep sane ownership.
 # -o allows ids that already exist in the image (e.g. gid 20 on macOS, gid 100 "users").
@@ -45,6 +56,11 @@ RUN if [ "${USER_UID}" = "0" ]; then echo "USER_UID must not be 0: the sandbox u
       -d "/home/${USERNAME}" -m -s /bin/bash node \
  && mkdir -p "/home/${USERNAME}/.claude/skills" /workspace \
  && chown -R "${USER_UID}:${USER_GID}" "/home/${USERNAME}" /workspace
+
+# Antigravity CLI only reads hooks from the user's ~/.gemini/config/hooks.json (no system-wide
+# location), so put a root-owned copy there.
+COPY --chmod=0644 hooks/agy-hooks.json /home/${USERNAME}/.gemini/config/hooks.json
+RUN chown "${USER_UID}:${USER_GID}" "/home/${USERNAME}/.gemini" "/home/${USERNAME}/.gemini/config"
 
 USER ${USERNAME}
 WORKDIR /workspace

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["/etc/opencode/plugins/deny-pkg-managers.js"],
+  "permission": {
+    "bash": {
+      "npm": "deny",
+      "npm *": "deny",
+      "npx *": "deny",
+      "pnpm *": "deny",
+      "pnpx *": "deny",
+      "yarn *": "deny",
+      "bun *": "deny",
+      "bunx *": "deny",
+      "corepack *": "deny",
+      "pip *": "deny",
+      "pip3 *": "deny",
+      "pipx *": "deny",
+      "uv *": "deny",
+      "uvx *": "deny",
+      "poetry *": "deny",
+      "conda *": "deny",
+      "python -m pip*": "deny",
+      "python3 -m pip*": "deny",
+      "python3 -m ensurepip*": "deny"
+    }
+  }
+}

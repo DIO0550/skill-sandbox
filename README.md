@@ -10,6 +10,7 @@ Claude Code のスキル（Agent Skills）を、ホスト環境から隔離さ�
 - 制限が実際に効いているかは [`scripts/verify.sh`](scripts/verify.sh) で確認できます
 - Claude Code と、Copilot CLI・Codex・Cursor CLI・Antigravity・OpenCode が入っています。どれも npm ではなく gist のインストーラーで入れています（[詳しく](#claude-code-と-ai-ツールの入れ方)）
 - コンテナ内の pnpm / npm には、spec-viewer と同じサプライチェーン対策（pnpm の `minimumReleaseAge`、npm の `ignore-scripts`、safe-chain）を設定しています
+- どの AI ツールからも、パッケージマネージャー（npm / npx / pnpm / yarn / bun / pip / uv など）は実行できません。各ツールのフックで止め、標準ライブラリだけで書かせます（[詳しく](#ai-ツールのパッケージマネージャー禁止フック)）
 - Docker まわりのファイル（Dockerfile、compose、proxy、firewall）は [`.devcontainer`](.devcontainer) にまとめています
 - VS Code の Dev Containers でも開けます。中身は同じ構成で、通信制限もそのまま効きます（[詳しく](#vs-codedev-containersで開く)）
 
@@ -181,6 +182,36 @@ sandbox のユーザー（`claude`）のシェルにも、spec-viewer と同じ�
 
 既定ではパッケージのレジストリを許可していないので、コンテナ内でパッケージを入れるには [`.devcontainer/proxy/allowed-domains.txt`](.devcontainer/proxy/allowed-domains.txt) の `registry.npmjs.org` と、safe-chain がマルウェア一覧を取得する `malware-list.aikido.dev` のコメントを外してください。これらの設定が効いていることは [`scripts/verify.sh`](scripts/verify.sh) で確認します。
 
+なお、AI ツールからは pnpm / npm を実行できません（次の節）。これらの設定は、人がコンテナ内で使う場合のためのものです。
+
+### AI ツールのパッケージマネージャー禁止フック
+
+コンテナ内の AI ツールは、パッケージマネージャーを実行できません。外部のパッケージを入れずに、Node.js や Python の標準ライブラリだけで書かせるためです。
+
+止めるコマンド:
+
+- Node.js: `npm`、`npx`、`pnpm`（`pnpm exec` / `pnpm dlx` を含むすべて）、`pnpx`、`yarn`、`bun`、`bunx`、`corepack` など
+- Python: `pip`、`pip3`、`pipx`、`uv`、`uvx`、`poetry`、`pdm`、`conda` など、`python -m pip`、`python -m ensurepip`
+
+判定は共通のスクリプト [`.devcontainer/sandbox/hooks/deny-pkg-managers`](.devcontainer/sandbox/hooks/deny-pkg-managers)（Python の標準ライブラリだけで書いたもの）で行い、各ツールのシェル実行前のフックから呼びます。`cd app && npm i`、`bash -c "npm i"`、`sudo npm i`、`/usr/bin/npm`、`node .../npm-cli.js` のような書き方も止めます。`echo npm` や `grep npm` のように、コマンドとして実行しないものは止めません。
+
+| ツール | 設定ファイル（イメージ内） | フック |
+| --- | --- | --- |
+| Claude Code | `/etc/claude-code/managed-settings.json`（[管理者向け設定](https://code.claude.com/docs/en/settings)） | `PreToolUse`（`Bash`） |
+| Copilot CLI | `/etc/github-copilot/policy.d/deny-pkg-managers.json`（[ポリシー](https://docs.github.com/en/copilot/reference/hooks-reference)） | `preToolUse` |
+| Codex | `/etc/codex/requirements.toml`（[管理者向けフック](https://developers.openai.com/codex/hooks)） | `PreToolUse`（`Bash`） |
+| Cursor CLI | `/etc/cursor/hooks.json`（[Enterprise フック](https://cursor.com/docs/hooks)） | `beforeShellExecution` |
+| OpenCode | `/etc/opencode/opencode.json` とプラグイン `/etc/opencode/plugins/deny-pkg-managers.js`（[プラグイン](https://opencode.ai/docs/plugins/)） | `tool.execute.before`（`bash`）と `permission.bash` の `deny` |
+| Antigravity CLI | `~/.gemini/config/hooks.json`（[フック](https://antigravity.google/docs/hooks)） | `PreToolUse`（`run_command`） |
+
+- Antigravity CLI 以外は、システム全体の設定（root 所有）に置いているので、コンテナ内のユーザーや AI ツールからは外せません。Claude Code・Copilot CLI・Codex の管理者向けのフックは、ユーザーの設定でフックを無効にしても動きます。
+- Antigravity CLI はユーザーの設定（`~/.gemini/config/hooks.json`）にしかフックを置けません。ファイルは root 所有にしていますが、フォルダはユーザーのものなので、消して置き換えることはできてしまいます。
+- コンテナ内でスキルのフックなどを試せるよう、ユーザーやプロジェクトのフックは止めていません。
+- フックは AI ツールの実行するコマンドを見て止める仕組みなので、完全な境界ではありません（たとえば、AI が書いたスクリプトの中から実行されるパッケージマネージャーは見えません）。そのため、パッケージのレジストリ（`registry.npmjs.org`、`pypi.org`、`files.pythonhosted.org`）はプロキシでも閉じたままにしていて、実際のダウンロードはどの方法でもできません。
+- Python は Debian の `python3` だけで、pip も標準ライブラリ以外のパッケージも入っていません。
+- 各ツールの設定ファイルがあり root 所有であること、各ツールの形式の入力で禁止するコマンドが止まり、ほかのコマンドは通ること、レジストリにつながらないことは [`scripts/verify.sh`](scripts/verify.sh) で確認します。各ツールに実際にログインして、フックが呼ばれるところまでは CI では確かめていません。
+- 人がコンテナ内のシェルで npm や pip を実行するのは止めていません（レジストリへの接続はプロキシで止まります）。
+
 ## ネットワーク制限（ファイアウォール＋許可リスト型プロキシ）
 
 ```
@@ -293,6 +324,7 @@ sandbox の中から実際に接続を試して、次の点を確認します。
 - ファイアウォールの既定ポリシーが DROP で、許可ルールはプロキシ宛ての 1 つだけ
 - Claude Code と各 AI ツールが gist で入れたもので、sandbox のユーザーが書き換えられない（npm 版の Claude Code は入っていない）
 - sandbox のユーザーのシェルで pnpm の `minimumReleaseAge`、npm の `ignore-scripts`、safe-chain が有効
+- 各 AI ツールのパッケージマネージャー禁止フックの設定があり、npm / npx / pnpm / pip などを止める。Python に pip や標準ライブラリ以外のパッケージがない。npm と PyPI のレジストリにはつながらない
 
 同じスクリプトを GitHub Actions（[`.github/workflows/verify.yml`](.github/workflows/verify.yml)）でも実行しています。プルリクエストごとに、何も入っていない環境でイメージをビルドして起動し、制限が効いていることを確認します。Dev Containers と同じ手順（[Dev Containers CLI](https://github.com/devcontainers/cli) の `devcontainer up`）で起動した場合も同じスクリプトで確認し、あわせてコンテナ内の VS Code Server から拡張機能をインストールできることも確かめています。
 
