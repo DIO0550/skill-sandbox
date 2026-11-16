@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM node:22-bookworm-slim
 
-ARG CLAUDE_CODE_VERSION=latest
 ARG USERNAME=claude
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -14,16 +13,20 @@ RUN apt-get update \
       ca-certificates curl git jq less procps ripgrep unzip vim-tiny python3 \
  && rm -rf /var/lib/apt/lists/*
 
-# Other AI coding CLIs (GitHub Copilot CLI, Codex, Cursor CLI, Antigravity, OpenCode),
-# installed with the same gists as spec-viewer, unmodified and fetched at build time:
-#   pnpm-safe-chain-setup.sh  pnpm + safe-chain (install-ai-tools.sh checks for them first)
-#   install-ai-tools.sh       the AI CLIs (and a native Claude Code, which link-ai-tools.sh removes)
+# Claude Code and the other AI coding CLIs (GitHub Copilot CLI, Codex, Cursor CLI,
+# Antigravity, OpenCode), installed with the same gists as spec-viewer, unmodified and
+# fetched at build time:
+#   pnpm-safe-chain-setup.sh  pnpm (minimumReleaseAge) + safe-chain, npm ignore-scripts
+#                             (install-ai-tools.sh checks for them first)
+#   install-ai-tools.sh       the AI CLIs, Claude Code included (its native installer)
+# Claude Code is not installed with npm.
 # They run as root with HOME=/opt/ai-tools so everything lands root-owned there, then
-# link-ai-tools.sh links the commands into /usr/local/bin.
-# Their API hosts are not allowed by default: see proxy/allowed-domains.txt.
+# link-ai-tools.sh links the commands into /usr/local/bin. The sandbox user cannot
+# modify them (and their auto-updaters cannot either).
+# Their API hosts are listed in ../proxy/allowed-domains.txt.
 ARG SAFE_CHAIN_GIST_URL=https://gist.githubusercontent.com/DIO0550/dcc09dc9d2dcefceb9b0cda183e7ef8e/raw/pnpm-safe-chain-setup.sh
 ARG AI_TOOLS_GIST_URL=https://gist.githubusercontent.com/DIO0550/148b1392cf435ba3562da0d398bee442/raw/install-ai-tools.sh
-RUN --mount=type=bind,source=ai-tools/link-ai-tools.sh,target=/tmp/link-ai-tools.sh \
+RUN --mount=type=bind,source=link-ai-tools.sh,target=/tmp/link-ai-tools.sh \
     export HOME=/opt/ai-tools \
  && mkdir -p "$HOME" /tmp/gists \
  && curl -fsSL "$SAFE_CHAIN_GIST_URL" -o /tmp/gists/pnpm-safe-chain-setup.sh \
@@ -32,13 +35,6 @@ RUN --mount=type=bind,source=ai-tools/link-ai-tools.sh,target=/tmp/link-ai-tools
  && bash /tmp/gists/install-ai-tools.sh </dev/null \
  && bash /tmp/link-ai-tools.sh \
  && rm -rf /tmp/gists /root/.npm
-
-# Install Claude Code globally (as root, so the non-root user cannot modify it).
-# This comes after the gists: the gist's native Claude Code installer removes an existing
-# global npm install of Claude Code.
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
- && npm cache clean --force \
- && claude --version
 
 # Reuse the base image's uid/gid 1000 "node" account, renamed and re-numbered
 # to match the host user so bind-mounted files keep sane ownership.
@@ -57,5 +53,10 @@ ENV HOME=/home/${USERNAME} \
     CLAUDE_CONFIG_DIR=/home/${USERNAME}/.claude \
     DISABLE_AUTOUPDATER=1 \
     SHELL=/bin/bash
+
+# The same supply-chain setup for the sandbox user's own shell, as in spec-viewer:
+# pnpm with minimumReleaseAge, npm ignore-scripts, and safe-chain wrapping npm / pnpm / npx.
+RUN curl -fsSL "$SAFE_CHAIN_GIST_URL" | sh \
+ && rm -rf "$HOME/.npm"
 
 CMD ["bash", "-l"]

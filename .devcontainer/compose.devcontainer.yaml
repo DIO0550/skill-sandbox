@@ -6,7 +6,7 @@
 #   https://github.com/microsoft/vscode-remote-release/issues/11896
 #   https://github.com/devcontainers/cli/issues/1320
 # そこで sandbox のイメージは devcontainer.json の initializeCommand（ホスト側の
-# `docker compose build`）で先に作っておき、Dev Containers にはビルドさせない。
+# `docker compose -f .devcontainer/compose.yaml build`）で先に作っておき、Dev Containers にはビルドさせない。
 services:
   sandbox:
     build: !reset null
