@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gist（install-ai-tools.sh）で /opt/ai-tools に入れた AI ツールの後始末をする。
+# gist（install-ai-tools.sh、install-gh-local.sh）で /opt/ai-tools に入れた AI ツールと gh の後始末をする。
 # Dockerfile から root で実行する。gist 自体は編集せずにそのまま使う。
 #
 #   - インストール時に作られた設定・キャッシュを消す（Claude Code の設定はコンテナ内ユーザーの
@@ -10,7 +10,7 @@ set -euo pipefail
 
 AI_HOME="${AI_TOOLS_HOME:-/opt/ai-tools}"
 LINK_DIR="${AI_TOOLS_LINK_DIR:-/usr/local/bin}"
-COMMANDS=(claude copilot codex cursor-agent agent agy opencode)
+COMMANDS=(claude copilot codex cursor-agent agent agy opencode gh)
 
 rm -rf "$AI_HOME/.claude" "$AI_HOME"/.claude.json* "$AI_HOME/.cache" "$AI_HOME/.npm"
 

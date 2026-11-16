@@ -24,7 +24,7 @@ platform.claude.com
 # pnpm / npm は safe-chain を通るので、マルウェア一覧の取得先（malware-list.aikido.dev）も合わせて許可する
 #registry.npmjs.org
 #malware-list.aikido.dev
-# GitHub 上のプラグインマーケットプレイス、git clone。Copilot CLI のログインにも使う
+# GitHub 上のプラグインマーケットプレイス、git clone。Copilot CLI と gh のログインにも使う
 github.com
 #codeload.github.com
 # /release-notes の変更履歴
@@ -54,7 +54,7 @@ marketplace.visualstudio.com
 # `docker compose logs proxy` の TCP_DENIED の行を見て追加する
 #
 # GitHub Copilot CLI（copilot）: ログインは github.com（上の「GitHub 上の…」の行で許可）と api.github.com、
-# 推論は *.githubcopilot.com
+# 推論は *.githubcopilot.com。api.github.com は gh（GitHub CLI）も使うので、Copilot CLI を使わなくても gh を使うなら残す
 api.github.com
 .githubcopilot.com
 #

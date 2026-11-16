@@ -214,6 +214,14 @@ const show = (r) => JSON.stringify(r);
     } catch (e) { ng(`${cmd} が実行できない`, (e.message || '').split('\n')[0]); }
   }
 
+  // --- gh（GitHub CLI、spec-viewer と同じ gist で入れたもの） ---
+  try {
+    const ghPath = fs.realpathSync(execFileSync('bash', ['-lc', 'command -v gh'], { encoding: 'utf8' }).trim());
+    if (!ghPath.startsWith('/opt/ai-tools/')) ng('gh が gist で入れたものではない', ghPath);
+    else if (writable(ghPath)) ng('gh を sandbox のユーザーが書き換えられる', ghPath);
+    else ok('gh が使える（' + execFileSync('gh', ['--version'], { encoding: 'utf8', timeout: 30000 }).split('\n')[0].trim() + '）');
+  } catch (e) { ng('gh が実行できない', (e.message || '').split('\n')[0]); }
+
   process.exit(failed ? 1 : 0);
 })();
 NODE

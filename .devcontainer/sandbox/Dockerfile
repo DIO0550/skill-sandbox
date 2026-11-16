@@ -19,6 +19,7 @@ RUN apt-get update \
 #   pnpm-safe-chain-setup.sh  pnpm (minimumReleaseAge) + safe-chain, npm ignore-scripts
 #                             (install-ai-tools.sh checks for them first)
 #   install-ai-tools.sh       the AI CLIs, Claude Code included (its native installer)
+#   install-gh-local.sh       GitHub CLI (gh), the latest release binary into ~/.local/bin
 # Claude Code is not installed with npm.
 # They run as root with HOME=/opt/ai-tools so everything lands root-owned there, then
 # link-ai-tools.sh links the commands into /usr/local/bin. The sandbox user cannot
@@ -26,13 +27,16 @@ RUN apt-get update \
 # Their API hosts are listed in ../proxy/allowed-domains.txt.
 ARG SAFE_CHAIN_GIST_URL=https://gist.githubusercontent.com/DIO0550/dcc09dc9d2dcefceb9b0cda183e7ef8e/raw/pnpm-safe-chain-setup.sh
 ARG AI_TOOLS_GIST_URL=https://gist.githubusercontent.com/DIO0550/148b1392cf435ba3562da0d398bee442/raw/install-ai-tools.sh
+ARG GH_GIST_URL=https://gist.githubusercontent.com/DIO0550/f5999a0512a369a232b7d4f824f0cc08/raw/install-gh-local.sh
 RUN --mount=type=bind,source=link-ai-tools.sh,target=/tmp/link-ai-tools.sh \
     export HOME=/opt/ai-tools \
  && mkdir -p "$HOME" /tmp/gists \
  && curl -fsSL "$SAFE_CHAIN_GIST_URL" -o /tmp/gists/pnpm-safe-chain-setup.sh \
  && curl -fsSL "$AI_TOOLS_GIST_URL" -o /tmp/gists/install-ai-tools.sh \
+ && curl -fsSL "$GH_GIST_URL" -o /tmp/gists/install-gh-local.sh \
  && sh /tmp/gists/pnpm-safe-chain-setup.sh \
  && bash /tmp/gists/install-ai-tools.sh </dev/null \
+ && bash /tmp/gists/install-gh-local.sh \
  && bash /tmp/link-ai-tools.sh \
  && rm -rf /tmp/gists /root/.npm
 
