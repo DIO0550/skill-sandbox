@@ -53,6 +53,9 @@ services:
       ENABLE_CLAUDEAI_MCP_SERVERS: "false"
       # Optional: leave unset to use `claude` / `/login` interactively instead.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional: gh（GitHub CLI）のトークン。空なら `gh auth login` でログインする。
+      # AI ツールもこのトークンで gh を使えるので、対象リポジトリと権限を絞ったものにする（README 参照）
+      GH_TOKEN: ${GH_TOKEN:-}
     volumes:
       # Only these two host folders are visible inside the container.
       - ../workspace/skills:/home/claude/.claude/skills

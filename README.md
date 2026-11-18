@@ -9,6 +9,7 @@ Claude Code のスキル（Agent Skills）を、ホスト環境から隔離さ�
 - さらに iptables のファイアウォールで、sandbox からはプロキシ以外（ホストや他のコンテナを含む）への通信をすべて拒否します
 - 制限が実際に効いているかは [`scripts/verify.sh`](scripts/verify.sh) で確認できます
 - Claude Code と、Copilot CLI・Codex・Cursor CLI・Antigravity・OpenCode が入っています。どれも npm ではなく gist のインストーラーで入れています（[詳しく](#claude-code-と-ai-ツールの入れ方)）
+- `gh`（GitHub CLI）も spec-viewer と同じ gist で入れています。ログインやトークンは[こちら](#ghgithub-cli)
 - コンテナ内の pnpm / npm には、spec-viewer と同じサプライチェーン対策（pnpm の `minimumReleaseAge`、npm の `ignore-scripts`、safe-chain）を設定しています
 - Docker まわりのファイル（Dockerfile、compose、proxy、firewall）は [`.devcontainer`](.devcontainer) にまとめています
 - VS Code の Dev Containers でも開けます。中身は同じ構成で、通信制限もそのまま効きます（[詳しく](#vs-codedev-containersで開く)）
@@ -131,6 +132,7 @@ VS Code と [Dev Containers 拡張機能](https://marketplace.visualstudio.com/i
 | --- | --- | --- |
 | `USER_UID` / `USER_GID` | `1000` | コンテナ内ユーザーの uid / gid。ホストのユーザーに合わせる |
 | `ANTHROPIC_API_KEY` | （空） | 指定すると対話ログインの代わりに API キーで認証 |
+| `GH_TOKEN` | （空） | 指定すると `gh auth login` の代わりにこのトークンで `gh` を使う。権限を絞ったトークンにする（[gh（GitHub CLI）](#ghgithub-cli)） |
 
 `USER_UID` / `USER_GID` を変えたら `docker compose build` で再ビルドしてください。
 
@@ -170,6 +172,24 @@ Claude Code と、いろいろなエージェントでスキルや作業を試�
 - 合計で 1.7GB ほどあるため、イメージが大きくなり、ビルドにも時間がかかります。
 - 更新は Claude Code と同じくイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。gist とインストーラーは毎回その時点の最新版を取得します。
 - 各ツールが使えて、書き換えられないこと、npm 版の Claude Code が入っていないことは [`scripts/verify.sh`](scripts/verify.sh) でも確認します。
+
+### gh（GitHub CLI）
+
+`gh` も spec-viewer と同じ gist（[`install-gh-local.sh`](https://gist.github.com/DIO0550/f5999a0512a369a232b7d4f824f0cc08)）を、編集せずにビルド時に取得して実行しています。AI ツールと同じく root 権限・`HOME=/opt/ai-tools` で入れて `/usr/local/bin/gh` にリンクするので、sandbox のユーザーは書き換えられません。
+
+- 入るのはビルド時点の最新リリースです。更新はイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。
+- gist は `uname -m` で amd64 / arm64 を判定し、公式のチェックサムで確認してから入れます（Apple Silicon の Mac でも arm64 版が入ります）。バージョンは GitHub API ではなく `github.com` の releases/latest から取るので、API の回数上限には当たりません。
+- 接続先の `github.com` と `api.github.com` は既定で許可しているので、追加の設定はいりません（[`allowed-domains.txt`](.devcontainer/proxy/allowed-domains.txt) で Copilot CLI の行を閉じるときも、gh を使うならこの 2 つは残してください）。
+
+#### ログインとトークンの扱い
+
+コンテナ内の AI ツールも、同じ認証情報で `gh` を実行できます（リポジトリへの push、PR やイシューの作成・削除なども含みます）。**渡すトークンは、試すのに必要なリポジトリと権限だけに絞ってください。**
+
+- おすすめは [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) です。「Repository access」で対象のリポジトリだけを選び、権限は必要なものだけ（読むだけなら Contents と Metadata の Read-only、PR を作るなら Pull requests の Read and write を足す）にして、有効期限も短めにします。
+- トークンは `.devcontainer/.env` の `GH_TOKEN` に書くと、コンテナ内で `gh` がそのまま使います（`.env` は Git に含めません）。変えたら `docker compose up -d` でコンテナを作り直してください。
+- `GH_TOKEN` を空にしておけば、コンテナ内で `gh auth login` を実行して対話でログインすることもできます（「Login with a web browser」を選び、表示された URL をホストのブラウザで開きます）。この場合のトークンはコンテナ内の `~/.config/gh` に保存され、コンテナを作り直すと消えます。対話ログインで発行されるトークンは、そのアカウントが触れるすべてのリポジトリに及ぶので、権限を絞りたいときは `GH_TOKEN` を使ってください。
+- spec-viewer と違い、ホストの `~/.config/gh` はマウントしていません。ホストのログイン情報をコンテナに持ち込まないためです（Dev Containers の `dev.containers.githubCLILoginWithToken` も無効にしています）。
+- HTTPS で `git push` するときに `gh` の認証情報を使うには、コンテナ内で `gh auth setup-git` を実行します。
 
 ### pnpm / npm のサプライチェーン対策
 
@@ -291,7 +311,7 @@ sandbox の中から実際に接続を試して、次の点を確認します。
 - 外部ドメインの DNS 解決はできない
 - root 以外のユーザーで動いていて、capabilities を持たず、`no-new-privileges` が有効
 - ファイアウォールの既定ポリシーが DROP で、許可ルールはプロキシ宛ての 1 つだけ
-- Claude Code と各 AI ツールが gist で入れたもので、sandbox のユーザーが書き換えられない（npm 版の Claude Code は入っていない）
+- Claude Code と各 AI ツール、`gh` が gist で入れたもので、sandbox のユーザーが書き換えられない（npm 版の Claude Code は入っていない）
 - sandbox のユーザーのシェルで pnpm の `minimumReleaseAge`、npm の `ignore-scripts`、safe-chain が有効
 
 同じスクリプトを GitHub Actions（[`.github/workflows/verify.yml`](.github/workflows/verify.yml)）でも実行しています。プルリクエストごとに、何も入っていない環境でイメージをビルドして起動し、制限が効いていることを確認します。Dev Containers と同じ手順（[Dev Containers CLI](https://github.com/devcontainers/cli) の `devcontainer up`）で起動した場合も同じスクリプトで確認し、あわせてコンテナ内の VS Code Server から拡張機能をインストールできることも確かめています。
