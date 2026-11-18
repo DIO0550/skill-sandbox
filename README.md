@@ -178,7 +178,7 @@ Claude Code と、いろいろなエージェントでスキルや作業を試�
 `gh` も spec-viewer と同じ gist（[`install-gh-local.sh`](https://gist.github.com/DIO0550/f5999a0512a369a232b7d4f824f0cc08)）を、編集せずにビルド時に取得して実行しています。AI ツールと同じく root 権限・`HOME=/opt/ai-tools` で入れて `/usr/local/bin/gh` にリンクするので、sandbox のユーザーは書き換えられません。
 
 - 入るのはビルド時点の最新リリースです。更新はイメージの再ビルドで行います（`docker compose build --no-cache sandbox`）。
-- gist は `linux_amd64` 版を取得します。Apple Silicon の Mac などで arm64 のイメージをビルドすると `gh` は動きません。
+- gist は `uname -m` で amd64 / arm64 を判定し、公式のチェックサムで確認してから入れます（Apple Silicon の Mac でも arm64 版が入ります）。バージョンは GitHub API ではなく `github.com` の releases/latest から取るので、API の回数上限には当たりません。
 - 接続先の `github.com` と `api.github.com` は既定で許可しているので、追加の設定はいりません（[`allowed-domains.txt`](.devcontainer/proxy/allowed-domains.txt) で Copilot CLI の行を閉じるときも、gh を使うならこの 2 つは残してください）。
 
 #### ログインとトークンの扱い
